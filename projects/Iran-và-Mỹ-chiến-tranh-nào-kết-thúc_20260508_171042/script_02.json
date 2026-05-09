@@ -1,0 +1,86 @@
+{
+  "title": "Iran và Mỹ: Chiến tranh có thể lại đến?",
+  "topic": "Iran-và-Mỹ-chiến-tranh-nào-kết-thúc",
+  "source_url": "https://vnexpress.net/my-iran-doi-mat-thoi-khac-quyet-dinh-cua-cuoc-chien-5057923.html",
+  "source_summary": "Bài viết nêu rõ rằng Mỹ và Iran đang chuẩn bị cho một cuộc đối đầu khốc liệt để gây tổn thất tối đa cho nhau, và có thể dẫn đến một cuộc chiến mới giữa hai bên.",
+  "scenes": [
+    {
+      "scene_number": 1,
+      "duration_seconds": 10,
+      "visual_prompt": "A tense atmosphere in a room with representatives of Iran and the US, their faces reflecting seriousness and determination. The room is dimly lit, emphasizing the serious mood.",
+      "narration_text": "Tensions between Iran và Mỹ đang dâng lên, các bên chuẩn bị cho một cuộc đối đầu khốc liệt để gây tổn thất tối đa cho nhau.",
+      "subtitle_text": "Nhiều Incident gần đây",
+      "clip_path": null,
+      "image_path": null,
+      "video_path": null,
+      "audio_path": null,
+      "reference_image_path": null,
+      "status": "pending"
+    },
+    {
+      "scene_number": 2,
+      "duration_seconds": 10,
+      "visual_prompt": "Aerial shots of oil fields with explosions in the background, accompanied by loud noises and flashing lights. The sun sets behind a smoke cloud rising over the horizon.",
+      "narration_text": "Incidents như vụ tấn công vào các đài phám dầu và cuộc không kích đã làm tăng căng thẳng trong khu vực.",
+      "subtitle_text": "Tension escalating",
+      "clip_path": null,
+      "image_path": null,
+      "video_path": null,
+      "audio_path": null,
+      "reference_image_path": null,
+      "status": "pending"
+    },
+    {
+      "scene_number": 3,
+      "duration_seconds": 10,
+      "visual_prompt": "A dramatic shot of military aircraft taking off from bases, with smoke and explosions in the background. International flags flying at half-staff against a backdrop of warships.",
+      "narration_text": "Trong khi các cuộc đàm phán đang diễn ra, con đường để giải quyet mâu thuẫn dường như trở nên xa xôi.",
+      "subtitle_text": "Negotiations seem elusive",
+      "clip_path": null,
+      "image_path": null,
+      "video_path": null,
+      "audio_path": null,
+      "reference_image_path": null,
+      "status": "pending"
+    },
+    {
+      "scene_number": 4,
+      "duration_seconds": 10,
+      "visual_prompt": "Aerial shots of military bases and oil fields, with smoke rising over the horizon. International flags flying at half-staff against a backdrop of soldiers marching in formation.",
+      "narration_text": "Rủi ro một cuộc chiến mới có thể ám ảnh và thách thức ổn định toàn cầu.",
+      "subtitle_text": "Threat to global stability",
+      "clip_path": null,
+      "image_path": null,
+      "video_path": null,
+      "audio_path": null,
+      "reference_image_path": null,
+      "status": "pending"
+    },
+    {
+      "scene_number": 5,
+      "duration_seconds": 10,
+      "visual_prompt": "An urgent shot of representatives from both nations sitting down for a meeting, with their hands crossed and serious faces. The room is illuminated by soft lighting.",
+      "narration_text": "Hãy đòi hỏi các biện pháp ngoại giao ngay lập tức và những nỗ lực mới cho đàm phán để tránh một cuộc chiến devastation lại.",
+      "subtitle_text": "Demand urgent diplomacy",
+      "clip_path": null,
+      "image_path": null,
+      "video_path": null,
+      "audio_path": null,
+      "reference_image_path": null,
+      "status": "pending"
+    },
+    {
+      "scene_number": 6,
+      "duration_seconds": 10,
+      "visual_prompt": "Final shot of representatives from both nations shaking hands, with the sun setting behind them. The room is dimly lit, emphasizing their positive gestures.",
+      "narration_text": "Hãy hy vọng rằng họ có thể tìm thấy một giải pháp để tránh cuộc chiến này và bảo vệ tương lai của thế giới.",
+      "subtitle_text": "Hope for peaceful resolution",
+      "clip_path": null,
+      "image_path": null,
+      "video_path": null,
+      "audio_path": null,
+      "reference_image_path": null,
+      "status": "pending"
+    }
+  ]
+}

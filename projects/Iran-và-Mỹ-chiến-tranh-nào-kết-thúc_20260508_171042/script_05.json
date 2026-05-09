@@ -1,0 +1,86 @@
+{
+  "title": "Iran-US Peace Closer?",
+  "topic": "Iran-và-Mỹ-chiến-tranh-nào-kết-thúc",
+  "source_url": "https://baomoi.com/my-iran-tien-toi-ban-ghi-nho-ket-thuc-chien-tranh-48-gio-toi-c55096421.epi",
+  "source_summary": "Bài viết thông tin về việc Mỹ và Iran đang tiến gần tới một thỏa thuận về bản ghi nhớ dài một trang nhằm kết thúc chiến tranh tại vùng Vịnh trong 48 giờ tới, đánh dấu sự chuyển biến mới trong mối quan hệ giữa hai bên.",
+  "scenes": [
+    {
+      "scene_number": 1,
+      "duration_seconds": 10,
+      "visual_prompt": "Tense interactions between US and Iranian flags in conflict zones, lighting dim with shadows. Close-up camera on the flags as they wave side by side.",
+      "narration_text": "The Cold War is Heating Up",
+      "subtitle_text": "US & Iran on the Brink",
+      "clip_path": null,
+      "image_path": null,
+      "video_path": null,
+      "audio_path": null,
+      "reference_image_path": null,
+      "status": "pending"
+    },
+    {
+      "scene_number": 2,
+      "duration_seconds": 10,
+      "visual_prompt": "Montage of recent missile strikes and military maneuvers by both nations in the region, lighting shifts between darkened streets and desolate desert landscapes. Close-up shots of soldiers preparing for battle.",
+      "narration_text": "Recent skirmishes have escalated tensions",
+      "subtitle_text": "US & Iran's Tensions Rise",
+      "clip_path": null,
+      "image_path": null,
+      "video_path": null,
+      "audio_path": null,
+      "reference_image_path": null,
+      "status": "pending"
+    },
+    {
+      "scene_number": 3,
+      "duration_seconds": 10,
+      "visual_prompt": "Voiceover: US and Iran are on the brink of a historic breakthrough to end their decades-long conflict. Lighting focuses on a news anchor speaking into camera, with a text overlay reading “US & Iran’s Historic Breakthrough.”",
+      "narration_text": "US and Iran are on the brink of a historic breakthrough to end their decades-long conflict.",
+      "subtitle_text": "Joint Declaration Near",
+      "clip_path": null,
+      "image_path": null,
+      "video_path": null,
+      "audio_path": null,
+      "reference_image_path": null,
+      "status": "pending"
+    },
+    {
+      "scene_number": 4,
+      "duration_seconds": 10,
+      "visual_prompt": "High-angle shot of two flags waving side-by-side, lighting shifts from natural light to dim shadows. Text overlay reads “Joint Declaration.” Close-up shots of President Biden and Iranian Supreme Leader Ayatollah Khamenei shaking hands.",
+      "narration_text": "President Biden and Ayatollah Khamenei shake hands",
+      "subtitle_text": "Historic Moment",
+      "clip_path": null,
+      "image_path": null,
+      "video_path": null,
+      "audio_path": null,
+      "reference_image_path": null,
+      "status": "pending"
+    },
+    {
+      "scene_number": 5,
+      "duration_seconds": 10,
+      "visual_prompt": "Text overlay on screen: “Stay tuned for updates as this pivotal moment unfolds in the Middle East.” Lighting shifts to a news anchor speaking into camera, looking at pictures of recent events.",
+      "narration_text": "This historic moment could change everything",
+      "subtitle_text": "A New Chapter",
+      "clip_path": null,
+      "image_path": null,
+      "video_path": null,
+      "audio_path": null,
+      "reference_image_path": null,
+      "status": "pending"
+    },
+    {
+      "scene_number": 6,
+      "duration_seconds": 10,
+      "visual_prompt": "Text overlay on screen: “Stay tuned for updates as this pivotal moment unfolds in the Middle East.” Lighting shifts to a news anchor speaking into camera, looking at pictures of recent events.",
+      "narration_text": "The world watches with bated breath",
+      "subtitle_text": "World's Eyes",
+      "clip_path": null,
+      "image_path": null,
+      "video_path": null,
+      "audio_path": null,
+      "reference_image_path": null,
+      "status": "pending"
+    }
+  ]
+}
