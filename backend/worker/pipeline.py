@@ -223,47 +223,72 @@ async def run_pipeline(
         primary_script = script
         job.scripts = scripts
 
-        # ── Phase 3a: Draw Things → still images ──
+        # ── Phase 3a: Generate still images ──
         clips_dir = project_dir / "clips"
         clips_dir.mkdir(exist_ok=True)
         total = len(primary_script.scenes)
-
-        async def _dt_status(msg: str):
-            await update(JobStatus.RENDERING, f"🖼️ {msg}", 30)
 
         # Scripting is done — free Ollama model from RAM before image gen
         await update(JobStatus.RENDERING, "🧹 Releasing Ollama model from RAM...", 30)
         await release_ollama_model()
 
-        await update(JobStatus.RENDERING, "Starting Draw Things...", 30)
-        await start_draw_things(on_status=_dt_status)
+        if settings.scene_engine == "html":
+            # HTML/CSS engine — no external service needed
+            from worker.html_engine import render_scene_to_png
+            await update(JobStatus.RENDERING, f"🎨 HTML engine ({settings.html_template} template)...", 30)
+            for i, scene in enumerate(primary_script.scenes):
+                png_path = clips_dir / f"scene_{i+1:02d}.png"
+                try:
+                    async def _html_prog(msg: str, _: int):
+                        await update(JobStatus.RENDERING, msg, 30 + int((i / total) * 20))
+                    result = await render_scene_to_png(
+                        scene=scene,
+                        title=primary_script.title,
+                        output_path=png_path,
+                        template=settings.html_template,
+                        on_progress=_html_prog,
+                    )
+                    scene.image_path = str(result)
+                    scene.clip_path = str(result)
+                    scene.status = "image_ready"
+                except Exception as e:
+                    scene.status = f"failed: {e}"
+                    print(f"HTML render error scene {i+1}: {e}")
+                pct = 30 + int((i + 1) / total * 20)
+                await update(JobStatus.RENDERING, f"🖼️ HTML scene {i+1}/{total} ready", pct)
+        else:
+            # DrawThings engine
+            async def _dt_status(msg: str):
+                await update(JobStatus.RENDERING, f"🖼️ {msg}", 30)
+            await update(JobStatus.RENDERING, "Starting Draw Things...", 30)
+            await start_draw_things(on_status=_dt_status)
 
-        prev_image: Path | None = None
-        for i, scene in enumerate(primary_script.scenes):
-            png_path = clips_dir / f"scene_{i+1:02d}.png"
-            try:
-                result = await generate_clip(
-                    visual_prompt=scene.visual_prompt,
-                    output_path=png_path,
-                    scene_number=i + 1,
-                    seed=scene.seed,
-                    image_style=scene.image_style,
-                    ref_image_path=prev_image,
-                )
-                scene.image_path = result
-                scene.clip_path = result
-                scene.status = "image_ready"
-                prev_image = Path(result)
-            except Exception as e:
-                scene.status = f"failed: {e}"
+            prev_image: Path | None = None
+            for i, scene in enumerate(primary_script.scenes):
+                png_path = clips_dir / f"scene_{i+1:02d}.png"
+                try:
+                    result = await generate_clip(
+                        visual_prompt=scene.visual_prompt,
+                        output_path=png_path,
+                        scene_number=i + 1,
+                        seed=scene.seed,
+                        image_style=scene.image_style,
+                        ref_image_path=prev_image,
+                    )
+                    scene.image_path = result
+                    scene.clip_path = result
+                    scene.status = "image_ready"
+                    prev_image = Path(result)
+                except Exception as e:
+                    scene.status = f"failed: {e}"
+                pct = 30 + int((i + 1) / total * 20)
+                await update(JobStatus.RENDERING, f"🖼️ Image {i+1}/{total} ready", pct)
 
-            pct = 30 + int((i + 1) / total * 20)
-            await update(JobStatus.RENDERING, f"🖼️ Image {i+1}/{total} ready", pct)
+            await update(JobStatus.RENDERING, "Stopping Draw Things to free resources...", 50)
+            stop_draw_things()
 
         # Persist paths so they survive a server restart
         script_path.write_text(primary_script.model_dump_json(indent=2), encoding="utf-8")
-        await update(JobStatus.RENDERING, "Stopping Draw Things to free resources...", 50)
-        stop_draw_things()
 
         # ── Phase 3b: Animate still images → video clips ──
         # Uses T2V engine (Phase 6) if configured, else falls back to ComfyUI AnimateDiff.
@@ -463,6 +488,28 @@ async def continue_pipeline(job_id: str, ws_callback=None) -> str:
         ]
         if not needs_render:
             await update(JobStatus.TTS, f"✅ All {len(primary_script.scenes)} clips already rendered", 55)
+        elif settings.scene_engine == "html":
+            from worker.html_engine import render_scene_to_png
+            await release_ollama_model()
+            await update(JobStatus.RENDERING, f"🎨 HTML engine ({settings.html_template}) — {len(needs_render)} scenes...", 30)
+            for idx, i in enumerate(needs_render):
+                scene = primary_script.scenes[i]
+                clip_path = clips_dir / f"scene_{i+1:02d}.png"
+                try:
+                    result = await render_scene_to_png(
+                        scene=scene,
+                        title=primary_script.title,
+                        output_path=clip_path,
+                        template=settings.html_template,
+                    )
+                    scene.clip_path = str(result)
+                    scene.image_path = str(result)
+                    scene.status = "image_ready"
+                except Exception as e:
+                    scene.status = f"failed: {e}"
+                    print(f"HTML render error scene {i+1}: {e}")
+                pct = 30 + int((idx + 1) / len(needs_render) * 25)
+                await update(JobStatus.RENDERING, f"🖼️ HTML scene {i+1}/{len(primary_script.scenes)} ready", pct)
         else:
             await update(JobStatus.RENDERING, f"Starting Draw Things for {len(needs_render)} missing clips...", 30)
             await release_ollama_model()
@@ -476,7 +523,6 @@ async def continue_pipeline(job_id: str, ws_callback=None) -> str:
             for idx, i in enumerate(needs_render):
                 scene = primary_script.scenes[i]
                 clip_path = clips_dir / f"scene_{i+1:02d}.png"
-                # Prefer previous scene's rendered image as ref (even if it wasn't re-rendered this run)
                 if i > 0:
                     prev_png = clips_dir / f"scene_{i:02d}.png"
                     if prev_png.exists():

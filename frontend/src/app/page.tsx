@@ -56,6 +56,10 @@ type Settings = {
   wan_model_name: string;
   t2v_num_frames: number;
   t2v_fps: number;
+  scene_engine: string;
+  available_scene_engines: string[];
+  html_template: string;
+  available_html_templates: string[];
   social: {
     youtube: { client_id: string; client_secret: string; refresh_token: string; };
     tiktok: { access_token: string; session_id: string; };
@@ -1621,6 +1625,48 @@ export default function Dashboard() {
                          <input type="range" min={8} max={30} step={2} value={settings.t2v_fps ?? 16}
                            onChange={e => updateSetting("t2v_fps", e.target.value)}
                            style={{ width: "100%", accentColor: "#f59e0b" }} />
+                       </div>
+                     </div>
+                   )}
+                 </div>
+               </div>
+
+               {/* HTML Scene Engine (2.0) */}
+               <div className="glass-card" style={{ padding: 24 }}>
+                 <h4 style={{ fontSize: 16, fontWeight: 700, marginBottom: 20, color: "#34d399" }}>🌐 Scene Engine (2.0)</h4>
+                 <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+                   <div>
+                     <label style={{ fontSize: 11, color: "var(--text-secondary)", display: "block", marginBottom: 10 }}>ENGINE</label>
+                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                       {(settings.available_scene_engines ?? ["drawthings", "html"]).map((eng: string) => (
+                         <button key={eng} onClick={() => updateSetting("scene_engine", eng)}
+                           style={{ padding: "8px 18px", borderRadius: 20, border: `2px solid ${settings.scene_engine === eng ? "#34d399" : "var(--border)"}`,
+                             background: settings.scene_engine === eng ? "rgba(52,211,153,0.15)" : "transparent",
+                             color: settings.scene_engine === eng ? "#34d399" : "var(--text-secondary)",
+                             fontWeight: 700, fontSize: 13, cursor: "pointer", textTransform: "uppercase" }}>
+                           {eng === "html" ? "🌐 HTML" : "🎨 Draw Things"}
+                         </button>
+                       ))}
+                     </div>
+                     <p style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 8 }}>
+                       {settings.scene_engine === "html"
+                         ? "Renders each scene as an HTML/CSS card via headless Chromium — no image AI required."
+                         : "Generates images via Draw Things Stable Diffusion API (requires local Draw Things app)."}
+                     </p>
+                   </div>
+                   {settings.scene_engine === "html" && (
+                     <div>
+                       <label style={{ fontSize: 11, color: "var(--text-secondary)", display: "block", marginBottom: 10 }}>TEMPLATE</label>
+                       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                         {(settings.available_html_templates ?? ["dark", "gradient", "minimal", "bold", "news", "cinematic"]).map((tpl: string) => (
+                           <button key={tpl} onClick={() => updateSetting("html_template", tpl)}
+                             style={{ padding: "7px 16px", borderRadius: 20, border: `2px solid ${settings.html_template === tpl ? "#34d399" : "var(--border)"}`,
+                               background: settings.html_template === tpl ? "rgba(52,211,153,0.15)" : "transparent",
+                               color: settings.html_template === tpl ? "#34d399" : "var(--text-secondary)",
+                               fontWeight: 600, fontSize: 12, cursor: "pointer", textTransform: "capitalize" }}>
+                             {tpl}
+                           </button>
+                         ))}
                        </div>
                      </div>
                    )}

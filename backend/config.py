@@ -84,6 +84,10 @@ class Settings(BaseSettings):
     enable_outro_card: bool = False        # append 3-second CTA card
     outro_card_text: str = "Like · Share · Follow!"
 
+    # Scene Engine (2.0)
+    scene_engine: str = "drawthings"  # drawthings | html
+    html_template: str = "dark"       # dark | gradient | minimal | bold | news | cinematic
+
     # Research
     search_results_per_topic: int = 5
 

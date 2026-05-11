@@ -80,6 +80,9 @@ class SettingsUpdate(BaseModel):
     enable_intro_card: Optional[bool] = None
     enable_outro_card: Optional[bool] = None
     outro_card_text: Optional[str] = None
+    # 2.0 — HTML scene engine
+    scene_engine: Optional[str] = None
+    html_template: Optional[str] = None
 
 @router.get("/")
 async def get_settings():
@@ -126,6 +129,10 @@ async def get_settings():
         "enable_intro_card": settings.enable_intro_card,
         "enable_outro_card": settings.enable_outro_card,
         "outro_card_text": settings.outro_card_text,
+        "scene_engine": settings.scene_engine,
+        "available_scene_engines": ["drawthings", "html"],
+        "html_template": settings.html_template,
+        "available_html_templates": ["dark", "gradient", "minimal", "bold", "news", "cinematic"],
         "social": {
             "youtube": {
                 "client_id": settings.youtube_client_id,
@@ -310,5 +317,13 @@ async def update_settings(update: SettingsUpdate):
         settings.outro_card_text = update.outro_card_text
         changed["outro_card_text"] = update.outro_card_text
         _persist_env("outro_card_text", update.outro_card_text)
+    if update.scene_engine is not None:
+        settings.scene_engine = update.scene_engine
+        changed["scene_engine"] = update.scene_engine
+        _persist_env("scene_engine", update.scene_engine)
+    if update.html_template is not None:
+        settings.html_template = update.html_template
+        changed["html_template"] = update.html_template
+        _persist_env("html_template", update.html_template)
 
     return {"message": "Settings updated", "changed": changed}
