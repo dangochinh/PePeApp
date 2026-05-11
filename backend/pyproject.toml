@@ -16,11 +16,12 @@ dependencies = [
     "aiosqlite>=0.19",
     "python-multipart>=0.0.9",
     "pyyaml>=6.0",
-    "duckduckgo-search>=7.0",
+    "ddgs>=1.0",
     "beautifulsoup4>=4.12",
     "moviepy>=1.0.3",
     "pillow>=10.0",
     "requests>=2.31",
+    "anthropic>=0.50.0",
 ]
 
 [tool.setuptools.packages.find]

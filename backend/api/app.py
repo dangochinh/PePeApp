@@ -15,6 +15,8 @@ from config import settings, PROJECTS_DIR
 from api.routes.jobs import router as jobs_router
 from api.routes.projects import router as projects_router
 from api.routes.settings_route import router as settings_router
+from api.routes.services import router as services_router
+from api.routes.publish import router as publish_router
 
 
 # WebSocket connections for real-time updates
@@ -39,9 +41,9 @@ async def lifespan(app: FastAPI):
     PROJECTS_DIR.mkdir(parents=True, exist_ok=True)
     print(f"PePeApp Backend starting on port {settings.port}")
     print(f"   Ollama: {settings.ollama_base_url} ({settings.ollama_model})")
-    print(f"   ComfyUI: {settings.comfyui_base_url}")
+    print(f"   Draw Things: {settings.draw_things_base_url}")
+    print(f"   ComfyUI I2V: {settings.comfyui_base_url}")
     print(f"   TTS Engine: {settings.tts_engine}")
-    print(f"   Video Model: {settings.video_model}")
     print(f"   Projects dir: {PROJECTS_DIR}")
     yield
     # Shutdown
@@ -68,6 +70,8 @@ app.add_middleware(
 app.include_router(jobs_router, prefix="/api/jobs", tags=["Jobs"])
 app.include_router(projects_router, prefix="/api/projects", tags=["Projects"])
 app.include_router(settings_router, prefix="/api/settings", tags=["Settings"])
+app.include_router(services_router, prefix="/api/services", tags=["Services"])
+app.include_router(publish_router, prefix="/api/publish", tags=["Publish"])
 
 # Serve generated videos/images statically
 if PROJECTS_DIR.exists():

@@ -1,7 +1,7 @@
 from enum import Enum
 from typing import Optional
 from datetime import datetime
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 
 class JobStatus(str, Enum):
@@ -14,6 +14,8 @@ class JobStatus(str, Enum):
     PREVIEW = "preview"
     PUBLISHING = "publishing"
     COMPLETED = "completed"
+    CANCELLING = "cancelling"
+    CANCELLED = "cancelled"
     FAILED = "failed"
 
 
@@ -34,12 +36,15 @@ class Scene(BaseModel):
     visual_prompt: str
     narration_text: str
     subtitle_text: str
-    clip_path: Optional[str] = None # Legacy/Mixed
+    clip_path: Optional[str] = None
     image_path: Optional[str] = None
     video_path: Optional[str] = None
     audio_path: Optional[str] = None
     reference_image_path: Optional[str] = None
     status: str = "pending"
+    seed: int = -1                  # -1 = random; fixed seed → same image on re-render
+    transition: str = ""            # xfade name, "" = use global setting
+    image_style: str = ""           # style preset override, "" = use global setting
 
 
 class Script(BaseModel):
@@ -52,9 +57,15 @@ class Script(BaseModel):
 
 class JobCreateRequest(BaseModel):
     topic: str
-    video_model: Optional[VideoModel] = None
-    tts_engine: Optional[TTSEngine] = None
     auto_publish: bool = False
+    script_style: str = "4wh"  # "4wh" | "viral"
+
+    @field_validator("topic")
+    @classmethod
+    def topic_not_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("topic must not be empty")
+        return v.strip()
 
 
 class JobProgress(BaseModel):
@@ -66,6 +77,7 @@ class JobProgress(BaseModel):
     error: Optional[str] = None
     project_dir: Optional[str] = None
     scripts: Optional[list[Script]] = None
+    has_final: bool = False
     created_at: datetime = datetime.now()
     updated_at: datetime = datetime.now()
 

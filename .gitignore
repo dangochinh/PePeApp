@@ -100,8 +100,14 @@ temp/
 backend/outputs/
 backend/uploads/
 backend/storage/
-projects/*/output/
-projects/*/temp/
+
+# Generated video projects — runtime data, not source code
+projects/*/
+!projects/.gitkeep
+
+# Playwright
+frontend/playwright-report/
+frontend/test-results/
 
 # Database
 *.sqlite

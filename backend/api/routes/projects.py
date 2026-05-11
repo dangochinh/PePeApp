@@ -3,9 +3,11 @@ Projects API — Browse projects, preview clips and videos.
 """
 import json
 from pathlib import Path
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, UploadFile, File
 from fastapi.responses import FileResponse
-from config import PROJECTS_DIR
+from config import PROJECTS_DIR, BASE_DIR
+
+MUSIC_DIR = BASE_DIR / "backend" / "assets" / "music"
 
 router = APIRouter()
 
@@ -34,6 +36,63 @@ async def list_projects():
                     **meta,
                 })
     return projects
+
+
+@router.get("/{project_name}/load")
+async def load_project_full(project_name: str):
+    """Load full project state — scripts + real asset status from disk."""
+    project_dir = PROJECTS_DIR / project_name
+    if not project_dir.exists():
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    meta: dict = {}
+    meta_path = project_dir / "metadata.json"
+    if meta_path.exists():
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+
+    job_id = meta.get("job_id", project_name)
+    clips_dir = project_dir / "clips"
+    audio_dir = project_dir / "audio"
+
+    scripts = []
+    for f in sorted(project_dir.glob("script_*.json")):
+        script_data = json.loads(f.read_text(encoding="utf-8"))
+        for scene in script_data.get("scenes", []):
+            n = scene.get("scene_number", 1)
+            prefix = f"scene_{n:02d}"
+            vp_found = next(iter(sorted(clips_dir.glob(f"{prefix}*.mp4"))), None) if clips_dir.exists() else None
+            scene["video_path"] = str(vp_found) if vp_found else None
+            ip_found = None
+            for ext in ("png", "jpg", "jpeg"):
+                ip = clips_dir / f"{prefix}.{ext}"
+                if ip.exists():
+                    ip_found = str(ip)
+                    break
+            if not ip_found and clips_dir.exists():
+                ip_found_path = next(iter(sorted(clips_dir.glob(f"{prefix}*.png"))), None) or \
+                                next(iter(sorted(clips_dir.glob(f"{prefix}*.jpg"))), None)
+                ip_found = str(ip_found_path) if ip_found_path else None
+            scene["clip_path"] = ip_found
+            scene["image_path"] = ip_found
+            ap = audio_dir / f"scene_{n:02d}.wav"
+            scene["audio_path"] = str(ap) if ap.exists() else None
+        scripts.append(script_data)
+
+    clips_count = len(list(clips_dir.glob("*"))) if clips_dir.exists() else 0
+    has_final = (project_dir / "final.mp4").exists()
+
+    return {
+        "job_id": job_id,
+        "name": project_name,
+        "status": "completed" if has_final else "preview",
+        "progress_pct": 100,
+        "current_step": f"Loaded — {clips_count} clips, {len(scripts)} scripts",
+        "logs": [],
+        "project_dir": str(project_dir),
+        "has_final": has_final,
+        "clips_count": clips_count,
+        "scripts": scripts,
+    }
 
 
 @router.get("/{project_name}/metadata")
@@ -71,6 +130,16 @@ async def serve_clip(project_name: str, filename: str):
     return FileResponse(clip_path, media_type=media_type)
 
 
+@router.get("/{project_name}/audio/{filename}")
+async def serve_audio(project_name: str, filename: str):
+    """Serve a TTS audio file for preview."""
+    audio_path = PROJECTS_DIR / project_name / "audio" / filename
+    if not audio_path.exists():
+        raise HTTPException(status_code=404, detail="Audio not found")
+    media_type = "audio/wav" if filename.endswith(".wav") else "audio/mpeg"
+    return FileResponse(audio_path, media_type=media_type)
+
+
 @router.get("/{project_name}/final")
 async def serve_final_video(project_name: str):
     """Serve the final merged video for preview."""
@@ -78,6 +147,25 @@ async def serve_final_video(project_name: str):
     if not final_path.exists():
         raise HTTPException(status_code=404, detail="Final video not found")
     return FileResponse(final_path, media_type="video/mp4")
+
+
+@router.post("/{project_name}/open-folder")
+async def open_project_folder(project_name: str):
+    """Reveal project folder in Finder (macOS) or file explorer."""
+    import subprocess, platform
+    project_dir = PROJECTS_DIR / project_name
+    final_path = project_dir / "final.mp4"
+    target = final_path if final_path.exists() else project_dir
+    try:
+        if platform.system() == "Darwin":
+            subprocess.Popen(["open", "-R", str(target)])
+        elif platform.system() == "Windows":
+            subprocess.Popen(["explorer", "/select,", str(target)])
+        else:
+            subprocess.Popen(["xdg-open", str(project_dir)])
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    return {"opened": str(target)}
 
 
 @router.get("/{project_name}/scripts")
@@ -110,3 +198,44 @@ async def delete_project(project_name: str):
         return {"message": f"Project {project_name} deleted successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to delete project: {str(e)}")
+
+
+# ── Background Music ──────────────────────────────────────────────────────────
+
+@router.get("/music/list")
+async def list_music():
+    """List all available background music files."""
+    MUSIC_DIR.mkdir(parents=True, exist_ok=True)
+    tracks = []
+    for f in sorted(MUSIC_DIR.iterdir()):
+        if f.suffix.lower() in (".mp3", ".wav", ".m4a", ".ogg") and f.is_file():
+            tracks.append({
+                "name": f.name,
+                "path": str(f),
+                "size_mb": round(f.stat().st_size / 1024 / 1024, 1),
+            })
+    return tracks
+
+
+@router.post("/music/upload")
+async def upload_music(file: UploadFile = File(...)):
+    """Upload a background music file to the music library."""
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No filename")
+    ext = Path(file.filename).suffix.lower()
+    if ext not in (".mp3", ".wav", ".m4a", ".ogg"):
+        raise HTTPException(status_code=400, detail="Only mp3/wav/m4a/ogg allowed")
+    MUSIC_DIR.mkdir(parents=True, exist_ok=True)
+    dest = MUSIC_DIR / file.filename
+    dest.write_bytes(await file.read())
+    return {"name": file.filename, "path": str(dest)}
+
+
+@router.delete("/music/{filename}")
+async def delete_music(filename: str):
+    """Delete a background music file."""
+    target = MUSIC_DIR / filename
+    if not target.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+    target.unlink()
+    return {"deleted": filename}

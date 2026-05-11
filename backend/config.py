@@ -14,7 +14,7 @@ class Settings(BaseSettings):
 
     # Ollama / Local AI
     ollama_base_url: str = "http://localhost:11434"
-    ollama_model: str = "qwen2.5:3b"
+    ollama_model: str = "qwen2.5:32b"
 
     # Cloud AI (OpenAI / DeepSeek Cloud)
     use_cloud_ai: bool = False
@@ -22,12 +22,24 @@ class Settings(BaseSettings):
     openai_base_url: str = "https://api.openai.com/v1"
     openai_model: str = "gpt-4o-mini"
 
-    # ComfyUI
+    # Anthropic / Claude Cloud
+    anthropic_api_key: str = ""
+    cloud_ai_api_key: str = ""   # alias: PEPE_CLOUD_AI_API_KEY also works
+    claude_model: str = "claude-haiku-4-5-20251001"
+
+    # Draw Things (image generation)
+    draw_things_base_url: str = "http://127.0.0.1:7860"
+
+    # ComfyUI (I2V — image → video, optional)
     comfyui_base_url: str = "http://127.0.0.1:8188"
-    video_model: str = "svd_xt"  # svd_xt | cogvideox | animatediff
+    comfyui_checkpoint: str = "illustriousXL.safetensors"
+    comfyui_motion_module: str = "mm_sdxl_v10_beta.ckpt"
+    comfyui_i2v_frames: int = 16   # animation frames (8fps × 16 = 2s loop)
+    comfyui_i2v_fps: int = 8
+    comfyui_i2v_denoise: float = 0.70  # how much to animate (0.5=subtle, 0.85=wild)
 
     # TTS
-    tts_engine: str = "edge-tts"  # faster-qwen3-tts | piper | edge-tts
+    tts_engine: str = "vieneu"  # vieneu | edge-tts | piper | faster-qwen3-tts
     tts_model_path: str = ""
     tts_ref_audio: str = ""
     tts_voice: str = "default"
@@ -36,6 +48,41 @@ class Settings(BaseSettings):
     output_format: str = "vertical"  # vertical (9:16) | horizontal (16:9)
     scenes_per_video: int = 6
     scene_duration_seconds: int = 10
+
+    # Image generation quality
+    draw_things_steps: int = 20       # 10–50; more = better quality, slower
+    draw_things_cfg: float = 5.0      # 1–12; higher = more prompt adherence
+    image_style: str = "cinematic"    # cinematic | anime | watercolor | oil_painting | neon | photorealistic
+
+    # Assembly
+    transition_style: str = "auto"    # auto (random) | fade | slideleft | slideup | wipeleft | dissolve | pixelize
+    ken_burns: bool = True            # Ken Burns zoom-pan effect on PNG still clips
+    color_grade: str = "none"         # none | warm | cool | noir | vibrant | muted | golden
+
+    # Background music
+    bg_music_path: str = ""           # path to .mp3/.wav file, empty = disabled
+    bg_music_volume: float = 0.12     # 0.0–1.0 relative to TTS audio
+
+    # Phase 5 — Visual Consistency
+    enable_upscale: bool = True            # Upscale PNG to 1080x1920 (Real-ESRGAN if binary found, else PIL Lanczos)
+    use_img2img_ref: bool = False          # Pass scene n-1 image as img2img reference for scene n
+    img2img_denoising: float = 0.35       # img2img denoising strength (0.2=very similar, 0.6=more creative)
+
+    # Phase 6 — Text-to-Video
+    t2v_engine: str = "none"              # none | comfyui_wan | replicate
+    replicate_api_key: str = ""
+    replicate_t2v_model: str = "wan-ai/wan2.1-i2v-480p"  # Replicate model slug
+    wan_model_name: str = "Wan2_1-I2V-14B-480P_fp8_e4m3fn.safetensors"  # ComfyUI Wan2.1 model file
+    t2v_num_frames: int = 81              # frames (16fps × 81 ≈ 5s)
+    t2v_fps: int = 16
+
+    # Branding overlay
+    watermark_path: str = ""               # path to PNG logo, empty = disabled
+    watermark_position: str = "topright"   # topleft | topright | bottomleft | bottomright
+    watermark_opacity: float = 0.7         # 0.0–1.0
+    enable_intro_card: bool = False        # prepend 3-second title card
+    enable_outro_card: bool = False        # append 3-second CTA card
+    outro_card_text: str = "Like · Share · Follow!"
 
     # Research
     search_results_per_topic: int = 5
@@ -54,6 +101,7 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         env_prefix = "PEPE_"
+        extra = "ignore"
 
 
 settings = Settings()
