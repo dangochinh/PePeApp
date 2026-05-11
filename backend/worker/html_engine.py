@@ -574,6 +574,12 @@ async def render_scene_to_png(
         from config import settings
         if settings.html_use_bg_image and settings.pexels_api_key:
             cache_dir = output_path.parent.parent / "bg_cache"
+            try:
+                cache_dir.mkdir(parents=True, exist_ok=True)
+            except OSError:
+                import tempfile
+                cache_dir = Path(tempfile.gettempdir()) / "pepe_bg_cache"
+                cache_dir.mkdir(exist_ok=True)
             keyword = scene.visual_prompt.split(",")[0][:60].strip()
             bg_image = await _fetch_bg_image(keyword, cache_dir)
     except Exception as e:
