@@ -83,6 +83,8 @@ class SettingsUpdate(BaseModel):
     # 2.0 — HTML scene engine
     scene_engine: Optional[str] = None
     html_template: Optional[str] = None
+    pexels_api_key: Optional[str] = None
+    html_use_bg_image: Optional[bool] = None
 
 @router.get("/")
 async def get_settings():
@@ -132,7 +134,9 @@ async def get_settings():
         "scene_engine": settings.scene_engine,
         "available_scene_engines": ["drawthings", "html"],
         "html_template": settings.html_template,
-        "available_html_templates": ["dark", "gradient", "minimal", "bold", "news", "cinematic"],
+        "available_html_templates": ["auto", "dark", "gradient", "minimal", "bold", "news", "cinematic", "stats", "how"],
+        "pexels_api_key": settings.pexels_api_key,
+        "html_use_bg_image": settings.html_use_bg_image,
         "social": {
             "youtube": {
                 "client_id": settings.youtube_client_id,
@@ -325,5 +329,13 @@ async def update_settings(update: SettingsUpdate):
         settings.html_template = update.html_template
         changed["html_template"] = update.html_template
         _persist_env("html_template", update.html_template)
+    if update.pexels_api_key is not None:
+        settings.pexels_api_key = update.pexels_api_key
+        changed["pexels_api_key"] = update.pexels_api_key
+        _persist_env("pexels_api_key", update.pexels_api_key)
+    if update.html_use_bg_image is not None:
+        settings.html_use_bg_image = update.html_use_bg_image
+        changed["html_use_bg_image"] = update.html_use_bg_image
+        _persist_env("html_use_bg_image", str(update.html_use_bg_image).lower())
 
     return {"message": "Settings updated", "changed": changed}

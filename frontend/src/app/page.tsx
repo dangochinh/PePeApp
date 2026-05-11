@@ -60,6 +60,8 @@ type Settings = {
   available_scene_engines: string[];
   html_template: string;
   available_html_templates: string[];
+  pexels_api_key: string;
+  html_use_bg_image: boolean;
   social: {
     youtube: { client_id: string; client_secret: string; refresh_token: string; };
     tiktok: { access_token: string; session_id: string; };
@@ -1654,22 +1656,57 @@ export default function Dashboard() {
                          : "Generates images via Draw Things Stable Diffusion API (requires local Draw Things app)."}
                      </p>
                    </div>
-                   {settings.scene_engine === "html" && (
+                   {settings.scene_engine === "html" && (<>
                      <div>
-                       <label style={{ fontSize: 11, color: "var(--text-secondary)", display: "block", marginBottom: 10 }}>TEMPLATE</label>
+                       <label style={{ fontSize: 11, color: "var(--text-secondary)", display: "block", marginBottom: 10 }}>
+                         TEMPLATE
+                         <span style={{ marginLeft: 8, color: "rgba(52,211,153,.5)", fontStyle: "italic" }}>
+                           auto = chọn layout theo nội dung từng cảnh
+                         </span>
+                       </label>
                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                         {(settings.available_html_templates ?? ["dark", "gradient", "minimal", "bold", "news", "cinematic"]).map((tpl: string) => (
+                         {(settings.available_html_templates ?? ["auto","dark","gradient","minimal","bold","news","cinematic","stats","how"]).map((tpl: string) => (
                            <button key={tpl} onClick={() => updateSetting("html_template", tpl)}
-                             style={{ padding: "7px 16px", borderRadius: 20, border: `2px solid ${settings.html_template === tpl ? "#34d399" : "var(--border)"}`,
+                             style={{ padding: "7px 16px", borderRadius: 20,
+                               border: `2px solid ${settings.html_template === tpl ? "#34d399" : "var(--border)"}`,
                                background: settings.html_template === tpl ? "rgba(52,211,153,0.15)" : "transparent",
                                color: settings.html_template === tpl ? "#34d399" : "var(--text-secondary)",
-                               fontWeight: 600, fontSize: 12, cursor: "pointer", textTransform: "capitalize" }}>
-                             {tpl}
+                               fontWeight: tpl === "auto" ? 800 : 600, fontSize: 12, cursor: "pointer", textTransform: "capitalize" }}>
+                             {tpl === "auto" ? "✨ auto" : tpl}
                            </button>
                          ))}
                        </div>
                      </div>
-                   )}
+                     <div style={{ height: 1, background: "var(--border)" }} />
+                     <div>
+                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                         <div>
+                           <div style={{ fontSize: 13, fontWeight: 700 }}>📸 Pexels Background Photo</div>
+                           <div style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 4 }}>
+                             Lấy ảnh thật từ Pexels làm background mỗi cảnh (cần API key miễn phí)
+                           </div>
+                         </div>
+                         <button onClick={() => updateSetting("html_use_bg_image", (!settings.html_use_bg_image).toString())}
+                           style={{ padding: "8px 18px", borderRadius: 8, border: "none",
+                             background: settings.html_use_bg_image ? "#34d399" : "var(--bg-secondary)",
+                             color: settings.html_use_bg_image ? "#000" : "white",
+                             fontWeight: 700, fontSize: 12, cursor: "pointer" }}>
+                           {settings.html_use_bg_image ? "ON" : "OFF"}
+                         </button>
+                       </div>
+                       {settings.html_use_bg_image && (
+                         <div>
+                           <label style={{ fontSize: 11, color: "var(--text-secondary)", display: "block", marginBottom: 6 }}>
+                             PEXELS API KEY <a href="https://www.pexels.com/api/" target="_blank" style={{ color: "#34d399", marginLeft: 6 }}>→ lấy miễn phí</a>
+                           </label>
+                           <input type="password" className="glow-input" style={{ padding: 10 }}
+                             placeholder="Dán API key Pexels vào đây..."
+                             value={settings.pexels_api_key ?? ""}
+                             onChange={e => updateSetting("pexels_api_key", e.target.value)} />
+                         </div>
+                       )}
+                     </div>
+                   </>)}
                  </div>
                </div>
 
