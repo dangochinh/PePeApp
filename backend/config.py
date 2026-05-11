@@ -87,6 +87,7 @@ class Settings(BaseSettings):
     # Scene Engine (2.0)
     scene_engine: str = "drawthings"  # drawthings | html
     html_template: str = "auto"       # auto | dark | gradient | minimal | bold | news | cinematic | stats | how
+    html_animated: bool = True        # True = record animated MP4 via Playwright; False = static PNG
     pexels_api_key: str = ""          # Pexels API key for background photos (free at pexels.com/api)
     html_use_bg_image: bool = False   # Fetch Pexels photo as scene background (requires pexels_api_key)
 

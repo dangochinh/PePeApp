@@ -234,28 +234,52 @@ async def run_pipeline(
 
         if settings.scene_engine == "html":
             # HTML/CSS engine — no external service needed
-            from worker.html_engine import render_scene_to_png
-            await update(JobStatus.RENDERING, f"🎨 HTML engine ({settings.html_template} template)...", 30)
-            for i, scene in enumerate(primary_script.scenes):
-                png_path = clips_dir / f"scene_{i+1:02d}.png"
-                try:
-                    async def _html_prog(msg: str, _: int):
-                        await update(JobStatus.RENDERING, msg, 30 + int((i / total) * 20))
-                    result = await render_scene_to_png(
-                        scene=scene,
-                        title=primary_script.title,
-                        output_path=png_path,
-                        template=settings.html_template,
-                        on_progress=_html_prog,
-                    )
-                    scene.image_path = str(result)
-                    scene.clip_path = str(result)
-                    scene.status = "image_ready"
-                except Exception as e:
-                    scene.status = f"failed: {e}"
-                    print(f"HTML render error scene {i+1}: {e}")
-                pct = 30 + int((i + 1) / total * 20)
-                await update(JobStatus.RENDERING, f"🖼️ HTML scene {i+1}/{total} ready", pct)
+            if settings.html_animated:
+                from worker.html_engine import render_scene_to_video
+                await update(JobStatus.RENDERING, f"🎬 HTML animated ({settings.html_template})...", 30)
+                for i, scene in enumerate(primary_script.scenes):
+                    mp4_path = clips_dir / f"scene_{i+1:02d}.mp4"
+                    try:
+                        async def _vid_prog(msg: str, _: int, _i=i):
+                            await update(JobStatus.RENDERING, msg, 30 + int((_i / total) * 20))
+                        result = await render_scene_to_video(
+                            scene=scene,
+                            title=primary_script.title,
+                            output_path=mp4_path,
+                            template=settings.html_template,
+                            on_progress=_vid_prog,
+                        )
+                        scene.video_path = str(result)
+                        scene.clip_path = str(result)
+                        scene.status = "rendered"
+                    except Exception as e:
+                        scene.status = f"failed: {e}"
+                        print(f"HTML video error scene {i+1}: {e}")
+                    pct = 30 + int((i + 1) / total * 20)
+                    await update(JobStatus.RENDERING, f"🎬 HTML scene {i+1}/{total} ready", pct)
+            else:
+                from worker.html_engine import render_scene_to_png
+                await update(JobStatus.RENDERING, f"🎨 HTML engine ({settings.html_template} template)...", 30)
+                for i, scene in enumerate(primary_script.scenes):
+                    png_path = clips_dir / f"scene_{i+1:02d}.png"
+                    try:
+                        async def _html_prog(msg: str, _: int, _i=i):
+                            await update(JobStatus.RENDERING, msg, 30 + int((_i / total) * 20))
+                        result = await render_scene_to_png(
+                            scene=scene,
+                            title=primary_script.title,
+                            output_path=png_path,
+                            template=settings.html_template,
+                            on_progress=_html_prog,
+                        )
+                        scene.image_path = str(result)
+                        scene.clip_path = str(result)
+                        scene.status = "image_ready"
+                    except Exception as e:
+                        scene.status = f"failed: {e}"
+                        print(f"HTML render error scene {i+1}: {e}")
+                    pct = 30 + int((i + 1) / total * 20)
+                    await update(JobStatus.RENDERING, f"🖼️ HTML scene {i+1}/{total} ready", pct)
         else:
             # DrawThings engine
             async def _dt_status(msg: str):
@@ -489,27 +513,49 @@ async def continue_pipeline(job_id: str, ws_callback=None) -> str:
         if not needs_render:
             await update(JobStatus.TTS, f"✅ All {len(primary_script.scenes)} clips already rendered", 55)
         elif settings.scene_engine == "html":
-            from worker.html_engine import render_scene_to_png
             await release_ollama_model()
-            await update(JobStatus.RENDERING, f"🎨 HTML engine ({settings.html_template}) — {len(needs_render)} scenes...", 30)
-            for idx, i in enumerate(needs_render):
-                scene = primary_script.scenes[i]
-                clip_path = clips_dir / f"scene_{i+1:02d}.png"
-                try:
-                    result = await render_scene_to_png(
-                        scene=scene,
-                        title=primary_script.title,
-                        output_path=clip_path,
-                        template=settings.html_template,
-                    )
-                    scene.clip_path = str(result)
-                    scene.image_path = str(result)
-                    scene.status = "image_ready"
-                except Exception as e:
-                    scene.status = f"failed: {e}"
-                    print(f"HTML render error scene {i+1}: {e}")
-                pct = 30 + int((idx + 1) / len(needs_render) * 25)
-                await update(JobStatus.RENDERING, f"🖼️ HTML scene {i+1}/{len(primary_script.scenes)} ready", pct)
+            if settings.html_animated:
+                from worker.html_engine import render_scene_to_video
+                await update(JobStatus.RENDERING, f"🎬 HTML animated — {len(needs_render)} scenes...", 30)
+                for idx, i in enumerate(needs_render):
+                    scene = primary_script.scenes[i]
+                    mp4_path = clips_dir / f"scene_{i+1:02d}.mp4"
+                    try:
+                        result = await render_scene_to_video(
+                            scene=scene,
+                            title=primary_script.title,
+                            output_path=mp4_path,
+                            template=settings.html_template,
+                        )
+                        scene.clip_path = str(result)
+                        scene.video_path = str(result)
+                        scene.status = "rendered"
+                    except Exception as e:
+                        scene.status = f"failed: {e}"
+                        print(f"HTML video error scene {i+1}: {e}")
+                    pct = 30 + int((idx + 1) / len(needs_render) * 25)
+                    await update(JobStatus.RENDERING, f"🎬 HTML scene {i+1}/{len(primary_script.scenes)} ready", pct)
+            else:
+                from worker.html_engine import render_scene_to_png
+                await update(JobStatus.RENDERING, f"🎨 HTML engine ({settings.html_template}) — {len(needs_render)} scenes...", 30)
+                for idx, i in enumerate(needs_render):
+                    scene = primary_script.scenes[i]
+                    clip_path = clips_dir / f"scene_{i+1:02d}.png"
+                    try:
+                        result = await render_scene_to_png(
+                            scene=scene,
+                            title=primary_script.title,
+                            output_path=clip_path,
+                            template=settings.html_template,
+                        )
+                        scene.clip_path = str(result)
+                        scene.image_path = str(result)
+                        scene.status = "image_ready"
+                    except Exception as e:
+                        scene.status = f"failed: {e}"
+                        print(f"HTML render error scene {i+1}: {e}")
+                    pct = 30 + int((idx + 1) / len(needs_render) * 25)
+                    await update(JobStatus.RENDERING, f"🖼️ HTML scene {i+1}/{len(primary_script.scenes)} ready", pct)
         else:
             await update(JobStatus.RENDERING, f"Starting Draw Things for {len(needs_render)} missing clips...", 30)
             await release_ollama_model()

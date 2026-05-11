@@ -615,3 +615,367 @@ async def render_all_scenes(
         path = await render_scene_to_png(scene, title, out, template, on_progress)
         paths.append(path)
     return paths
+
+
+# ---------------------------------------------------------------------------
+# Animated HTML templates (content reveals sequentially over scene duration)
+# ---------------------------------------------------------------------------
+
+_ANIM_CSS = """
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(32px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-40px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes slideLeft {
+  from { opacity: 0; transform: translateX(-50px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes slideRight {
+  from { opacity: 0; transform: translateX(50px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+.a-up   { opacity:0; animation: fadeUp   0.55s cubic-bezier(0.16,1,0.3,1) forwards; }
+.a-in   { opacity:0; animation: fadeIn   0.55s ease forwards; }
+.a-down { opacity:0; animation: slideDown 0.55s cubic-bezier(0.16,1,0.3,1) forwards; }
+.a-left { opacity:0; animation: slideLeft 0.55s cubic-bezier(0.16,1,0.3,1) forwards; }
+.a-rgt  { opacity:0; animation: slideRight 0.55s cubic-bezier(0.16,1,0.3,1) forwards; }
+"""
+
+
+def _estimate_tts_dur(text: str) -> float:
+    """Rough TTS duration estimate: ~13 chars/second for Vietnamese."""
+    return max(4.0, len(text.strip()) / 13.0)
+
+
+def _anim_how(scene: Scene, title: str, duration: float,
+              accent: str, bg1: str, bg2: str, bg_image: str | None) -> str:
+    raw = [s.strip() for s in re.split(r'[.!;]', scene.narration_text) if s.strip()]
+    steps = raw[:4] or [scene.narration_text]
+    n = len(steps)
+    # Step 0 at 0.4s; remaining steps evenly spaced across the duration
+    interval = (duration - 0.5) / max(n, 1)
+    delays = [0.4 + i * interval for i in range(n)]
+
+    steps_html = "".join(
+        f'<div class="step a-left" style="animation-delay:{d:.2f}s">'
+        f'<span class="sn">{i+1}</span>'
+        f'<span class="st">{textwrap.shorten(s, 90, placeholder="…")}</span>'
+        f'</div>'
+        for i, (s, d) in enumerate(zip(steps, delays))
+    )
+    if bg_image:
+        body_style = f"background:url({bg_image}) center/cover no-repeat; position:relative;"
+    else:
+        body_style = f"background:linear-gradient(160deg,{bg1} 0%,#0a0a0a 100%);"
+    ov = _overlay(bg_image)
+    z = _z()
+    return f"""<!DOCTYPE html><html><head><meta charset="UTF-8">
+<style>
+{_COMMON_CSS}
+{_ANIM_CSS}
+body {{ {body_style} display:flex; flex-direction:column; justify-content:center; padding:100px 80px; }}
+.cat {{ {z} color:{accent}; font-size:26px; font-weight:800; letter-spacing:6px;
+  text-transform:uppercase; margin-bottom:28px; }}
+.hl  {{ {z} color:#fff; font-size:70px; font-weight:900; line-height:1.08;
+  letter-spacing:-1.5px; margin-bottom:60px; }}
+.step {{ {z} display:flex; align-items:flex-start; gap:24px; margin-bottom:44px; }}
+.sn  {{ flex-shrink:0; width:68px; height:68px; border-radius:50%; background:{accent};
+  color:#000; font-size:34px; font-weight:900;
+  display:flex; align-items:center; justify-content:center; margin-top:4px; }}
+.st  {{ color:rgba(255,255,255,.85); font-size:42px; line-height:1.45; }}
+.foot {{ {z} position:absolute; bottom:80px; left:80px;
+  color:{accent}; font-size:28px; font-weight:700; letter-spacing:3px; }}
+</style></head><body>
+{ov}
+<div class="cat a-in" style="animation-delay:0.1s">CÁCH LÀM · HOW TO</div>
+<div class="hl a-up"  style="animation-delay:0.2s">{_wrap_headline(scene.subtitle_text, 28)}</div>
+{steps_html}
+<div class="foot a-in" style="animation-delay:0.15s">{title[:28]}</div>
+</body></html>"""
+
+
+def _anim_stats(scene: Scene, title: str, duration: float,
+                accent: str, bg1: str, bg2: str, bg_image: str | None) -> str:
+    stat = _extract_stat(scene.narration_text)
+    number, unit = stat if stat else ("?", "")
+    try:
+        target_val = float(number.replace(",", ""))
+    except ValueError:
+        target_val = 0.0
+    count_dur_ms = int(min(duration * 0.35, 2.8) * 1000)
+    narr = textwrap.shorten(scene.narration_text, 200, placeholder="…")
+    if bg_image:
+        body_style = f"background:url({bg_image}) center/cover no-repeat; position:relative;"
+    else:
+        body_style = f"background:linear-gradient(160deg,{bg1},#000 80%);"
+    ov = _overlay(bg_image)
+    z = _z()
+    return f"""<!DOCTYPE html><html><head><meta charset="UTF-8">
+<style>
+{_COMMON_CSS}
+{_ANIM_CSS}
+body {{ {body_style} display:flex; flex-direction:column; align-items:center;
+  justify-content:center; padding:80px 60px; }}
+.cat  {{ {z} color:{accent}; font-size:26px; font-weight:800; letter-spacing:8px;
+  text-transform:uppercase; margin-bottom:56px; }}
+.num-wrap {{ {z} text-align:center; margin-bottom:36px; }}
+.big  {{ display:block; color:{accent}; font-size:230px; font-weight:900;
+  line-height:0.9; letter-spacing:-6px; text-shadow:0 0 80px {accent}55; }}
+.unit {{ display:block; color:rgba(255,255,255,.6); font-size:58px;
+  font-weight:700; letter-spacing:2px; margin-top:14px; }}
+.div  {{ {z} width:150px; height:5px; background:{accent}44; border-radius:3px; margin:44px 0; }}
+.hl   {{ {z} color:#fff; font-size:54px; font-weight:700; text-align:center;
+  line-height:1.3; max-width:860px; margin-bottom:32px; }}
+.narr {{ {z} color:rgba(255,255,255,.6); font-size:36px; text-align:center;
+  line-height:1.55; max-width:860px; }}
+.badge {{ {z} position:absolute; bottom:80px; right:80px;
+  color:{accent}; font-size:26px; font-weight:700; letter-spacing:2px; }}
+</style></head><body>
+{ov}
+<div class="cat a-in" style="animation-delay:0.1s">SỐ LIỆU · SCENE {scene.scene_number:02d}</div>
+<div class="num-wrap a-up" style="animation-delay:0.3s">
+  <span class="big" id="counter">0</span>
+  <span class="unit">{unit}</span>
+</div>
+<div class="div a-in" style="animation-delay:0.4s"></div>
+<div class="hl a-up"   style="animation-delay:0.5s">{scene.subtitle_text}</div>
+<div class="narr a-up" style="animation-delay:0.7s">{narr}</div>
+<div class="badge a-in" style="animation-delay:0.15s">{title[:24]}</div>
+<script>
+(function(){{
+  var el = document.getElementById('counter');
+  var target = {target_val};
+  var dur = {count_dur_ms};
+  var start = null;
+  function ease(t) {{ return 1 - Math.pow(1-t, 3); }}
+  function tick(ts) {{
+    if (!start) start = ts;
+    var t = Math.min((ts - start) / dur, 1);
+    var val = ease(t) * target;
+    el.textContent = Number.isInteger(target) ? Math.round(val) : val.toFixed(1);
+    if (t < 1) requestAnimationFrame(tick);
+    else el.textContent = target % 1 === 0 ? Math.round(target) : target;
+  }}
+  setTimeout(function(){{ requestAnimationFrame(tick); }}, 600);
+}})();
+</script>
+</body></html>"""
+
+
+def _anim_news(scene: Scene, title: str, duration: float,
+               accent: str, bg1: str, bg2: str, bg_image: str | None) -> str:
+    labels = ["WHAT", "WHY", "WHO", "HOW", "KHOẢNH KHẮC", "KẾT LUẬN"]
+    cat = labels[(scene.scene_number - 1) % len(labels)]
+    paras = [p for p in textwrap.wrap(scene.narration_text, 42)][:4]
+    n = len(paras)
+    para_interval = (duration - 1.5) / max(n, 1)
+    paras_html = "".join(
+        f'<p class="a-up" style="animation-delay:{1.5 + i*para_interval:.2f}s">{p}</p>'
+        for i, p in enumerate(paras)
+    )
+    if bg_image:
+        hdr_style = f"background:url({bg_image}) center 20%/cover no-repeat; position:relative;"
+        hdr_ov = f'<div style="position:absolute;inset:0;background:{accent}cc;z-index:0;"></div>'
+    else:
+        hdr_style = f"background:{accent};"
+        hdr_ov = ""
+    z = _z()
+    return f"""<!DOCTYPE html><html><head><meta charset="UTF-8">
+<style>
+{_COMMON_CSS}
+{_ANIM_CSS}
+body {{ background:linear-gradient(180deg,#0a0a0a,#111); padding:0; overflow:hidden; }}
+.hdr {{ {hdr_style} padding:56px 80px 48px; }}
+.cat {{ {z} color:rgba(0,0,0,.65); font-size:28px; font-weight:800;
+  letter-spacing:6px; text-transform:uppercase; margin-bottom:18px; }}
+.hl  {{ {z} color:#fff; font-size:70px; font-weight:900; line-height:1.08;
+  letter-spacing:-1.5px; text-shadow:0 3px 20px rgba(0,0,0,.5); }}
+.body {{ padding:64px 80px; }}
+.body p {{ color:rgba(255,255,255,.76); font-size:44px; line-height:1.6; margin-bottom:14px; }}
+.foot {{ position:absolute; bottom:0; left:0; right:0;
+  background:{accent}22; border-top:2px solid {accent}44; padding:32px 80px;
+  display:flex; align-items:center; justify-content:space-between; }}
+.ft {{ color:{accent}; font-size:34px; font-weight:800; }}
+.fn {{ color:rgba(255,255,255,.35); font-size:30px; }}
+</style></head><body>
+<div class="hdr a-down" style="animation-delay:0.1s">
+  {hdr_ov}
+  <div class="cat">{cat}</div>
+  <div class="hl">{scene.subtitle_text}</div>
+</div>
+<div class="body">{paras_html}</div>
+<div class="foot a-up" style="animation-delay:0.2s">
+  <span class="ft">{title[:26]}</span>
+  <span class="fn">{scene.scene_number} / 6</span>
+</div>
+</body></html>"""
+
+
+def _anim_dark(scene: Scene, title: str, duration: float,
+               accent: str, bg1: str, bg2: str, bg_image: str | None) -> str:
+    """Generic animated dark card: icon → headline → narration text fades up."""
+    icon = _scene_icon(scene.scene_number)
+    hl = _wrap_headline(scene.subtitle_text, 36)
+    narr_lines = textwrap.wrap(scene.narration_text, 44)[:4]
+    n = len(narr_lines)
+    line_interval = (duration - 1.5) / max(n, 1)
+    lines_html = "".join(
+        f'<p class="a-up" style="animation-delay:{1.5 + i*line_interval:.2f}s">{ln}</p>'
+        for i, ln in enumerate(narr_lines)
+    )
+    if bg_image:
+        body_style = f"background:url({bg_image}) center/cover no-repeat; position:relative;"
+    else:
+        body_style = f"background:linear-gradient(160deg,{bg1} 0%,{bg2} 60%,#000 100%);"
+    ov = _overlay(bg_image)
+    z = _z()
+    return f"""<!DOCTYPE html><html><head><meta charset="UTF-8">
+<style>
+{_COMMON_CSS}
+{_ANIM_CSS}
+body {{ {body_style} display:flex; flex-direction:column; align-items:center;
+  justify-content:center; padding:80px 60px; }}
+.sn   {{ {z} color:rgba(255,255,255,.3); font-size:28px; letter-spacing:6px;
+  font-weight:700; position:absolute; top:80px; left:80px; }}
+.bar  {{ {z} width:100px; height:6px; background:{accent}; border-radius:3px; margin-bottom:52px; }}
+.icon {{ {z} font-size:96px; margin-bottom:44px; filter:drop-shadow(0 0 24px {accent}88); }}
+.hl   {{ {z} color:#fff; font-size:78px; font-weight:900; line-height:1.1;
+  text-align:center; margin-bottom:48px; text-shadow:0 4px 32px rgba(0,0,0,.7); }}
+.narr p {{ {z} color:rgba(255,255,255,.72); font-size:40px; line-height:1.55;
+  text-align:center; margin-bottom:8px; max-width:900px; }}
+.badge {{ {z} position:absolute; bottom:80px; right:80px;
+  background:{accent}22; border:2px solid {accent}66; color:{accent};
+  font-size:28px; font-weight:700; padding:12px 24px; border-radius:40px; }}
+</style></head><body>
+{ov}
+<span class="sn a-in" style="animation-delay:0.1s">SCENE {scene.scene_number:02d}</span>
+<div class="bar a-in"   style="animation-delay:0.2s"></div>
+<div class="icon a-up"  style="animation-delay:0.3s">{icon}</div>
+<div class="hl a-up"    style="animation-delay:0.55s">{hl}</div>
+<div class="narr">{lines_html}</div>
+<div class="badge a-in" style="animation-delay:0.15s">{title[:26]}</div>
+</body></html>"""
+
+
+_ANIM_MAP = {
+    "how":       _anim_how,
+    "stats":     _anim_stats,
+    "news":      _anim_news,
+    "dark":      _anim_dark,
+    "gradient":  _anim_dark,   # use generic reveal for others
+    "minimal":   _anim_dark,
+    "bold":      _anim_dark,
+    "cinematic": _anim_dark,
+}
+
+
+def build_animated_html(scene: Scene, title: str, template: str,
+                        duration: float, bg_image: str | None = None) -> str:
+    """Build HTML with sequential CSS animations timed to `duration` seconds."""
+    bg1, bg2, accent = _palette(title + str(scene.scene_number))
+    tpl = template if template != "auto" else _auto_template(scene)
+    fn = _ANIM_MAP.get(tpl, _anim_dark)
+    return fn(scene, title, duration, accent, bg1, bg2, bg_image)
+
+
+# ---------------------------------------------------------------------------
+# Animated video rendering via Playwright screen recording
+# ---------------------------------------------------------------------------
+
+async def render_scene_to_video(
+    scene: Scene,
+    title: str,
+    output_path: Path,           # target .mp4
+    template: str = "auto",
+    duration: float | None = None,
+    on_progress: Callable[[str, int], None] | None = None,
+) -> Path:
+    """
+    Record the animated HTML scene as an MP4.
+    Content elements appear sequentially over the scene duration — no Ken Burns needed.
+    """
+    try:
+        from playwright.async_api import async_playwright
+    except ImportError as exc:
+        raise RuntimeError(
+            "playwright not installed — run: pip install playwright && playwright install chromium"
+        ) from exc
+
+    scene_dur = duration or _estimate_tts_dur(scene.narration_text)
+
+    # Optional Pexels background (same logic as static PNG)
+    bg_image: str | None = None
+    try:
+        from config import settings
+        if settings.html_use_bg_image and settings.pexels_api_key:
+            cache_dir = output_path.parent.parent / "bg_cache"
+            try:
+                cache_dir.mkdir(parents=True, exist_ok=True)
+            except OSError:
+                import tempfile
+                cache_dir = Path(tempfile.gettempdir()) / "pepe_bg_cache"
+                cache_dir.mkdir(exist_ok=True)
+            keyword = scene.visual_prompt.split(",")[0][:60].strip()
+            bg_image = await _fetch_bg_image(keyword, cache_dir)
+    except Exception as e:
+        print(f"[html_engine] bg fetch error: {e}")
+
+    html = build_animated_html(scene, title, template, scene_dur, bg_image)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if on_progress:
+        on_progress(f"🎬 Recording HTML scene {scene.scene_number}…", 10)
+
+    webm_dir = output_path.parent / f"_webm_{scene.scene_number:02d}"
+    webm_dir.mkdir(exist_ok=True)
+
+    async with async_playwright() as pw:
+        browser = await pw.chromium.launch(headless=True)
+        context = await browser.new_context(
+            viewport={"width": 1080, "height": 1920},
+            record_video_dir=str(webm_dir),
+            record_video_size={"width": 1080, "height": 1920},
+        )
+        page = await context.new_page()
+        await page.set_content(html, wait_until="networkidle")
+        # Let animations play; extra 0.4s buffer for last element to settle
+        await asyncio.sleep(scene_dur + 0.4)
+        # Finalize recording (context.close saves the webm), then save, then close browser
+        video = page.video
+        await context.close()           # finalizes the webm file
+        webm_path = output_path.with_suffix(".tmp.webm")
+        await video.save_as(str(webm_path))  # must be before browser.close()
+        await browser.close()
+
+    # Convert WebM → h264 MP4
+
+    proc = await asyncio.create_subprocess_exec(
+        "ffmpeg", "-y",
+        "-i", str(webm_path),
+        "-c:v", "libx264", "-preset", "fast", "-crf", "22",
+        "-pix_fmt", "yuv420p",
+        str(output_path),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    _, stderr = await proc.communicate()
+    if proc.returncode != 0:
+        raise RuntimeError(f"FFmpeg webm→mp4 failed:\n{stderr.decode()[-500:]}")
+
+    webm_path.unlink(missing_ok=True)
+    # Clean up temp webm recording dir
+    import shutil
+    shutil.rmtree(webm_dir, ignore_errors=True)
+
+    if on_progress:
+        on_progress(f"🎬 HTML scene {scene.scene_number} video ready", 100)
+
+    return output_path

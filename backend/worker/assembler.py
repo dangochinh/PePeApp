@@ -179,7 +179,10 @@ async def merge_clips(project_dir: Path, scenes: list[dict], on_progress=None) -
         dur = scene.get("duration_seconds", 10)
 
         if mp4.exists():
-            if subtitle:
+            from config import settings as _s
+            # HTML animated clips already contain all text content — skip subtitle overlay
+            _html_clip = _s.scene_engine == "html" and _s.html_animated
+            if subtitle and not _html_clip:
                 # Get actual MP4 dimensions, create overlay PNG, burn via FFmpeg overlay filter
                 W, H = await _get_video_dimensions(mp4)
                 ovl_png = clips_dir / f"scene_{i+1:02d}_ovl.png"
