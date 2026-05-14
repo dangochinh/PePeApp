@@ -69,9 +69,18 @@ type Settings = {
   };
 };
 
+const PRESET_DESCRIPTIONS: Record<string, string> = {
+  "ambient-calm.wav":     "Slow pad — finance, lifestyle",
+  "ambient-tech.wav":     "Pulsing drone — tech, crypto, AI",
+  "ambient-dramatic.wav": "Tension build — war, news, politics",
+  "ambient-upbeat.wav":   "Bright arpeggio — comparisons, products",
+};
+
 function BgMusicPanel({ settings, updateSetting, apiBase }: { settings: any; updateSetting: (k: string, v: string) => void; apiBase: string }) {
   const [tracks, setTracks] = React.useState<{ name: string; path: string; size_mb: number }[]>([]);
   const [uploading, setUploading] = React.useState(false);
+  const [generating, setGenerating] = React.useState(false);
+  const [genMsg, setGenMsg] = React.useState<string | null>(null);
 
   const loadTracks = React.useCallback(() => {
     fetch(`${apiBase}/projects/music/list`).then(r => r.json()).then(setTracks).catch(() => {});
@@ -96,18 +105,49 @@ function BgMusicPanel({ settings, updateSetting, apiBase }: { settings: any; upd
     loadTracks();
   };
 
+  const handleGeneratePresets = async () => {
+    setGenerating(true);
+    setGenMsg(null);
+    try {
+      const r = await fetch(`${apiBase}/projects/music/generate-presets`, { method: "POST" });
+      const data = await r.json();
+      const n = data.generated ?? 0;
+      setGenMsg(n > 0 ? `✅ Generated ${n} track${n > 1 ? "s" : ""}` : "✅ All presets already exist");
+      loadTracks();
+    } catch {
+      setGenMsg("❌ Generation failed");
+    } finally {
+      setGenerating(false);
+    }
+  };
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      {/* Generate presets button */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <button
+          onClick={handleGeneratePresets}
+          disabled={generating}
+          style={{ flex: 1, padding: "8px 14px", borderRadius: 10, border: "1px solid rgba(139,92,246,0.45)", background: generating ? "rgba(139,92,246,0.06)" : "rgba(139,92,246,0.10)", color: "#a78bfa", fontSize: 12, fontWeight: 700, cursor: generating ? "not-allowed" : "pointer" }}
+        >
+          {generating ? "⏳ Generating..." : "🎹 Generate 4 Preset Tracks"}
+        </button>
+        {genMsg && <span style={{ fontSize: 11, color: "var(--text-secondary)" }}>{genMsg}</span>}
+      </div>
       {/* Track list */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 160, overflowY: "auto" }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 200, overflowY: "auto" }}>
         {tracks.length === 0
-          ? <div style={{ fontSize: 12, color: "var(--text-secondary)", opacity: 0.5 }}>No tracks yet — upload an mp3/wav file</div>
+          ? <div style={{ fontSize: 12, color: "var(--text-secondary)", opacity: 0.5 }}>No tracks yet — generate presets or upload a file</div>
           : tracks.map(t => {
               const active = settings.bg_music_path?.includes(t.name);
+              const desc = PRESET_DESCRIPTIONS[t.name];
               return (
                 <div key={t.name} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 12px", borderRadius: 8, background: active ? "rgba(234,179,8,0.1)" : "rgba(255,255,255,0.03)", border: `1px solid ${active ? "rgba(234,179,8,0.35)" : "var(--border)"}` }}>
-                  <span style={{ fontSize: 14 }}>🎵</span>
-                  <span style={{ flex: 1, fontSize: 12, fontWeight: active ? 700 : 400, color: active ? "var(--accent-gold)" : "white", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.name}</span>
+                  <span style={{ fontSize: 14 }}>{desc ? "🎹" : "🎵"}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12, fontWeight: active ? 700 : 400, color: active ? "var(--accent-gold)" : "white", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.name.replace(".wav","").replace(".mp3","")}</div>
+                    {desc && <div style={{ fontSize: 10, color: "var(--text-secondary)", opacity: 0.7 }}>{desc}</div>}
+                  </div>
                   <span style={{ fontSize: 10, color: "var(--text-secondary)", flexShrink: 0 }}>{t.size_mb}MB</span>
                   <button onClick={() => updateSetting("bg_music_path", active ? "" : t.path)} style={{ fontSize: 11, padding: "3px 10px", borderRadius: 6, border: `1px solid ${active ? "rgba(234,179,8,0.4)" : "rgba(255,255,255,0.15)"}`, background: "transparent", color: active ? "var(--accent-gold)" : "var(--text-secondary)", cursor: "pointer", fontWeight: active ? 700 : 400 }}>{active ? "✓ Active" : "Use"}</button>
                   <button onClick={() => handleDelete(t.name)} style={{ fontSize: 11, padding: "3px 8px", borderRadius: 6, border: "1px solid rgba(239,68,68,0.3)", background: "transparent", color: "#EF4444", cursor: "pointer" }}>✕</button>
@@ -120,10 +160,10 @@ function BgMusicPanel({ settings, updateSetting, apiBase }: { settings: any; upd
       {settings.bg_music_path && (
         <div>
           <label style={{ fontSize: 11, color: "var(--text-secondary)", display: "block", marginBottom: 4 }}>
-            VOLUME <span style={{ color: "var(--accent-gold)", fontWeight: 700 }}>{Math.round((settings.bg_music_volume ?? 0.12) * 100)}%</span>
-            <span style={{ opacity: 0.5 }}> (relative to TTS voice)</span>
+            VOLUME <span style={{ color: "var(--accent-gold)", fontWeight: 700 }}>{Math.round((settings.bg_music_volume ?? 0.35) * 100)}%</span>
+            <span style={{ opacity: 0.5 }}> (ducks under voice)</span>
           </label>
-          <input type="range" min={0} max={1} step={0.01} value={settings.bg_music_volume ?? 0.12}
+          <input type="range" min={0} max={1} step={0.01} value={settings.bg_music_volume ?? 0.35}
             onChange={e => updateSetting("bg_music_volume", e.target.value)}
             style={{ width: "100%", accentColor: "var(--accent-gold)" }} />
         </div>

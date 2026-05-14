@@ -241,6 +241,16 @@ async def delete_music(filename: str):
     return {"deleted": filename}
 
 
+@router.post("/music/generate-presets")
+async def generate_music_presets():
+    """Generate 4 royalty-free ambient background music presets (numpy synthesis)."""
+    from worker.music_generator import generate_preset_tracks_async
+    MUSIC_DIR.mkdir(parents=True, exist_ok=True)
+    results = await generate_preset_tracks_async(MUSIC_DIR)
+    return {"generated": len([r for r in results if r.get("status") == "generated"]),
+            "tracks": results}
+
+
 # ── Stock Image Library ───────────────────────────────────────────────────────
 
 @router.post("/stock/rebuild")
