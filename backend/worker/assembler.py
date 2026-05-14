@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 
 
-TRANSITION_DUR  = 0.5      # seconds overlap between clips
+TRANSITION_DUR  = 0.4      # seconds overlap between clips
 
 TRANSITION_POOL = [
     "fade", "slideleft", "slideright", "slideup", "slidedown",
@@ -18,17 +18,33 @@ TRANSITION_POOL = [
     "dissolve", "pixelize", "radial",
 ]
 
-def _pick_transition(scene_transition: str, scene_index: int) -> str:
+# Scene type → preferred xfade transition
+_TYPE_TRANSITION: dict[str, str] = {
+    "compare": "wipeleft",    # directional wipe suits side-by-side comparison
+    "stats":   "fade",        # clean fade for number reveals
+    "how":     "slideup",     # upward for step sequences
+    "cta":     "dissolve",    # soft dissolve for CTA finales
+    "what":    "slideleft",
+    "why":     "fadeblack",
+    "generic": "fade",
+}
+
+
+def _pick_transition(scene_transition: str, scene_index: int,
+                     scene_type: str = "") -> str:
     """Return the xfade transition name for a given scene."""
     from config import settings
     override = scene_transition.strip() if scene_transition else ""
     if override and override != "auto":
         return override
     global_style = settings.transition_style
-    if global_style == "auto":
-        # Deterministic-random per scene index so re-assembly is consistent
-        return TRANSITION_POOL[scene_index % len(TRANSITION_POOL)]
-    return global_style if global_style in TRANSITION_POOL else "fade"
+    if global_style != "auto":
+        return global_style if global_style in TRANSITION_POOL else "fade"
+    # Type-matched: use scene_type hint if available
+    if scene_type and scene_type in _TYPE_TRANSITION:
+        return _TYPE_TRANSITION[scene_type]
+    # Deterministic-random fallback per scene index
+    return TRANSITION_POOL[scene_index % len(TRANSITION_POOL)]
 
 SUBTITLE_FONT_SIZE = 52    # px on 1080-wide image
 SUBTITLE_Y_RATIO   = 0.65  # 65 % down the frame (2/3 of video height)
@@ -92,6 +108,37 @@ _FONT_CANDIDATES = [
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
+
+async def bake_scene_audio(video_path: Path, audio_path: Path, output_path: Path) -> None:
+    """Merge audio into video → standalone mp4.
+    If audio is longer than video, freeze last frame to fill the gap (max wins).
+    """
+    video_dur = await _get_duration(video_path)
+    audio_dur = await _get_duration(audio_path)
+    pad = audio_dur - video_dur
+
+    if pad > 0.05:
+        # Audio overruns video — freeze last frame for the remaining duration
+        await _run_ffmpeg([
+            "ffmpeg", "-y",
+            "-i", str(video_path),
+            "-i", str(audio_path),
+            "-vf", f"tpad=stop_mode=clone:stop_duration={pad:.3f}",
+            "-map", "0:v", "-map", "1:a",
+            "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+            "-c:a", "aac", "-b:a", "128k",
+            str(output_path),
+        ])
+    else:
+        await _run_ffmpeg([
+            "ffmpeg", "-y",
+            "-i", str(video_path),
+            "-i", str(audio_path),
+            "-map", "0:v", "-map", "1:a",
+            "-c:v", "copy", "-c:a", "aac", "-b:a", "128k",
+            "-shortest",
+            str(output_path),
+        ])
 
 def _split_narration(text: str, max_chars: int = 42) -> list[str]:
     """Split narration text into subtitle-sized chunks by sentence then by comma."""
@@ -310,11 +357,13 @@ async def merge_clips(project_dir: Path, scenes: list[dict], on_progress=None) -
         cumulative = 0.0
         prev = "[0:v]"
         scene_transitions = [s.get("transition", "") for s in scenes]
+        scene_types = [s.get("scene_type", "") for s in scenes]
         for i in range(n - 1):
             cumulative += durations[i]
             offset = max(0.0, cumulative - (i + 1) * TRANSITION_DUR)
             out = "[xfout]" if i == n - 2 else f"[xf{i}]"
-            tr = _pick_transition(scene_transitions[i] if i < len(scene_transitions) else "", i)
+            stype = scene_types[i] if i < len(scene_types) else ""
+            tr = _pick_transition(scene_transitions[i] if i < len(scene_transitions) else "", i, stype)
             fc.append(
                 f"{prev}[{i+1}:v]xfade=transition={tr}"
                 f":duration={TRANSITION_DUR:.2f}:offset={offset:.3f}{out}"
@@ -381,8 +430,18 @@ async def merge_clips(project_dir: Path, scenes: list[dict], on_progress=None) -
         vol = _cfg.bg_music_volume
         cmd_fin += [
             "-filter_complex",
-            f"[1:a]aresample=44100,pan=stereo|FL=FL+0.707*FC|FR=FR+0.707*FC[voice];"
-            f"[2:a]volume={vol:.3f}[music];[voice][music]amix=inputs=2:duration=first:dropout_transition=3[aout]",
+            # Normalize voice to stereo
+            f"[1:a]aresample=44100,pan=stereo|FL=FL+0.707*FC|FR=FR+0.707*FC,alimiter=limit=0.95[voice];"
+            # Music at configured volume level
+            f"[2:a]aresample=44100,volume={vol:.3f}[music_raw];"
+            # Split voice: one for output, one for sidechain detector
+            f"[voice]asplit=2[voice_out][voice_sc];"
+            # Sidechain compress: music ducks when voice is present
+            # threshold=0.02 → triggers on quiet speech; ratio=8 → aggressive duck
+            # attack=15ms (fast react) release=400ms (slow fade back)
+            f"[music_raw][voice_sc]sidechaincompress=threshold=0.02:ratio=8:attack=15:release=400:makeup=1.4[music_duck];"
+            # Final mix: ducked music + voice
+            f"[voice_out][music_duck]amix=inputs=2:duration=first:dropout_transition=2:normalize=0[aout]",
             "-map", "0:v", "-map", "[aout]",
             "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
         ]
@@ -445,38 +504,18 @@ async def merge_clips(project_dir: Path, scenes: list[dict], on_progress=None) -
             if meta_path.exists():
                 meta = _json2.loads(meta_path.read_text(encoding="utf-8"))
             topic = meta.get("topic", "")
-            intro_png = project_dir / "intro_card.png"
             intro_mp4 = project_dir / "intro_card.mp4"
-            _generate_card(intro_png, topic, card_type="intro")
-            await _run_ffmpeg([
-                "ffmpeg", "-y",
-                "-loop", "1", "-framerate", "25", "-t", "3", "-i", str(intro_png),
-                "-f", "lavfi", "-t", "3", "-i", "anullsrc=r=44100:cl=stereo",
-                "-map", "0:v", "-map", "1:a",
-                "-c:v", "libx264", "-pix_fmt", "yuv420p",
-                "-vf", SCALE_VF, "-c:a", "aac", "-b:a", "128k",
-                "-shortest", str(intro_mp4),
-            ])
+            await _render_animated_card(intro_mp4, topic, card_type="intro")
             card_parts.append(intro_mp4)
-            tmp_cards += [intro_png, intro_mp4]
+            tmp_cards.append(intro_mp4)
 
         card_parts.append(final_path)
 
         if _cfg.enable_outro_card:
-            outro_png = project_dir / "outro_card.png"
             outro_mp4 = project_dir / "outro_card.mp4"
-            _generate_card(outro_png, _cfg.outro_card_text, card_type="outro")
-            await _run_ffmpeg([
-                "ffmpeg", "-y",
-                "-loop", "1", "-framerate", "25", "-t", "3", "-i", str(outro_png),
-                "-f", "lavfi", "-t", "3", "-i", "anullsrc=r=44100:cl=stereo",
-                "-map", "0:v", "-map", "1:a",
-                "-c:v", "libx264", "-pix_fmt", "yuv420p",
-                "-vf", SCALE_VF, "-c:a", "aac", "-b:a", "128k",
-                "-shortest", str(outro_mp4),
-            ])
+            await _render_animated_card(outro_mp4, _cfg.outro_card_text, card_type="outro")
             card_parts.append(outro_mp4)
-            tmp_cards += [outro_png, outro_mp4]
+            tmp_cards.append(outro_mp4)
 
         if len(card_parts) > 1:
             branded_tmp = project_dir / "final_branded.mp4"
@@ -502,6 +541,108 @@ async def merge_clips(project_dir: Path, scenes: list[dict], on_progress=None) -
 
 
 # ── Card / branding generators ────────────────────────────────────────────────
+
+async def _render_animated_card(dst: Path, text: str, card_type: str = "intro") -> None:
+    """Render a cinematic animated intro/outro card as MP4 via Playwright."""
+    duration = 3.0
+    accent = "#f59e0b" if card_type == "intro" else "#10b981"
+    bg1 = "#0a0800" if card_type == "intro" else "#001a0d"
+    bg2 = "#1a1000" if card_type == "intro" else "#003320"
+    label = "PEPE AI" if card_type == "intro" else "LIKE · SHARE · FOLLOW"
+    import textwrap as _tw
+    short = _tw.shorten(text or "", 60, placeholder="…")
+
+    html = f"""<!DOCTYPE html><html><head><meta charset="UTF-8">
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;700;900&display=swap');
+*{{margin:0;padding:0;box-sizing:border-box;}}
+body{{width:1080px;height:1920px;overflow:hidden;
+  background:linear-gradient(160deg,{bg1} 0%,{bg2} 60%,#000 100%);
+  font-family:'Be Vietnam Pro',sans-serif;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;}}
+@keyframes wipeR{{from{{clip-path:inset(0 100% 0 0)}}to{{clip-path:inset(0 0% 0 0)}}}}
+@keyframes fadeU{{from{{opacity:0;transform:translateY(40px)}}to{{opacity:1;transform:translateY(0)}}}}
+@keyframes popIn{{0%{{opacity:0;transform:scale(0.7)}}70%{{transform:scale(1.05)}}100%{{opacity:1;transform:scale(1)}}}}
+@keyframes scan{{0%{{top:-4px;opacity:.5}}100%{{top:100%;opacity:0}}}}
+.scan{{position:absolute;left:0;right:0;height:3px;background:linear-gradient(90deg,transparent,{accent},transparent);
+  animation:scan 2.5s linear infinite;z-index:10;}}
+.logo{{color:{accent};font-size:32px;font-weight:800;letter-spacing:12px;text-transform:uppercase;
+  opacity:0;animation:fadeU 0.5s ease 0.2s forwards;margin-bottom:60px;}}
+.bar{{width:120px;height:5px;background:{accent};border-radius:3px;
+  animation:wipeR 0.6s cubic-bezier(0.16,1,0.3,1) 0.5s forwards;clip-path:inset(0 100% 0 0);
+  margin-bottom:48px;}}
+.title{{color:#fff;font-size:{'72px' if len(short) < 40 else '58px'};font-weight:900;
+  text-align:center;line-height:1.12;letter-spacing:-2px;max-width:900px;
+  text-shadow:0 4px 40px rgba(0,0,0,.8);
+  opacity:0;animation:fadeU 0.65s cubic-bezier(0.16,1,0.3,1) 0.7s forwards;
+  margin-bottom:52px;}}
+.sub{{color:{accent};font-size:30px;font-weight:700;letter-spacing:6px;text-transform:uppercase;
+  opacity:0;animation:fadeU 0.5s ease 1.1s forwards;}}
+.corner{{position:absolute;width:80px;height:80px;border-color:{accent};border-style:solid;opacity:0.5;}}
+.tl{{top:60px;left:60px;border-width:4px 0 0 4px;}}
+.tr{{top:60px;right:60px;border-width:4px 4px 0 0;}}
+.bl{{bottom:60px;left:60px;border-width:0 0 4px 4px;}}
+.br{{bottom:60px;right:60px;border-width:0 4px 4px 0;}}
+</style></head><body>
+<div class="scan"></div>
+<div class="corner tl"></div>
+<div class="corner tr"></div>
+<div class="corner bl"></div>
+<div class="corner br"></div>
+<div class="logo">{label}</div>
+<div class="bar"></div>
+<div class="title">{short}</div>
+<div class="sub">{'Khám phá ngay' if card_type == 'intro' else '© PePeApp'}</div>
+</body></html>"""
+
+    try:
+        from playwright.async_api import async_playwright
+        webm_dir = dst.parent / "_webm_card"
+        webm_dir.mkdir(exist_ok=True)
+        async with async_playwright() as pw:
+            browser = await pw.chromium.launch(headless=True,
+                args=["--autoplay-policy=no-user-gesture-required"])
+            ctx = await browser.new_context(
+                viewport={"width": 1080, "height": 1920},
+                record_video_dir=str(webm_dir),
+                record_video_size={"width": 1080, "height": 1920},
+            )
+            page = await ctx.new_page()
+            await page.set_content(html, wait_until="networkidle")
+            await asyncio.sleep(duration + 0.3)
+            vid = page.video
+            await ctx.close()
+            webm = dst.with_suffix(".tmp.webm")
+            await vid.save_as(str(webm))
+            await browser.close()
+        # WebM → h264 MP4 with silent audio
+        await _run_ffmpeg([
+            "ffmpeg", "-y", "-i", str(webm),
+            "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
+            "-map", "0:v", "-map", "1:a",
+            "-c:v", "libx264", "-preset", "fast", "-crf", "22",
+            "-pix_fmt", "yuv420p",
+            "-c:a", "aac", "-b:a", "128k", "-shortest",
+            str(dst),
+        ])
+        webm.unlink(missing_ok=True)
+        import shutil
+        shutil.rmtree(webm_dir, ignore_errors=True)
+    except Exception as e:
+        print(f"[assembler] animated card failed ({e}), falling back to Pillow card")
+        png_tmp = dst.with_suffix(".png")
+        _generate_card(png_tmp, text, card_type=card_type)
+        await _run_ffmpeg([
+            "ffmpeg", "-y",
+            "-loop", "1", "-framerate", "25", "-t", "3", "-i", str(png_tmp),
+            "-f", "lavfi", "-t", "3", "-i", "anullsrc=r=44100:cl=stereo",
+            "-map", "0:v", "-map", "1:a",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p",
+            "-vf", SCALE_VF, "-c:a", "aac", "-b:a", "128k", "-shortest",
+            str(dst),
+        ])
+        png_tmp.unlink(missing_ok=True)
+
 
 def _generate_card(dst: Path, text: str, card_type: str = "intro", W: int = 1080, H: int = 1920) -> None:
     """Generate an intro or outro title card PNG using Pillow."""

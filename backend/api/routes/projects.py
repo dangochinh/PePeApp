@@ -239,3 +239,24 @@ async def delete_music(filename: str):
         raise HTTPException(status_code=404, detail="File not found")
     target.unlink()
     return {"deleted": filename}
+
+
+# ── Stock Image Library ───────────────────────────────────────────────────────
+
+@router.post("/stock/rebuild")
+async def rebuild_stock_library():
+    """Scan all project clips/ dirs and index PNG images into the stock library."""
+    from worker.stock_library import scan_and_index
+    added = scan_and_index(PROJECTS_DIR)
+    total = sum(added.values())
+    return {
+        "message": f"Stock library rebuilt — {total} new image(s) indexed.",
+        "by_category": added,
+    }
+
+
+@router.get("/stock/stats")
+async def stock_library_stats():
+    """Return current stock library image counts per category."""
+    from worker.stock_library import library_stats
+    return library_stats()

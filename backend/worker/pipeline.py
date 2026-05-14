@@ -10,10 +10,10 @@ from datetime import datetime
 from pathlib import Path
 from config import settings, PROJECTS_DIR
 from models.schemas import JobStatus, JobProgress
-from worker.research_engine import research_topic
+from worker.research_engine import research_topic, research_from_url
 from worker.script_engine import generate_script
 from worker.video_engine import generate_clip, generate_video_from_image, generate_t2v
-from worker.tts_engine import generate_audio
+from worker.tts_engine import generate_audio, generate_audio_with_word_timings
 from worker.assembler import merge_clips
 from worker.service_control import start_draw_things, stop_draw_things, release_ollama_model
 
@@ -129,6 +129,7 @@ async def run_pipeline(
     auto_publish: bool = False,
     ws_callback=None,
     script_style: str = "4wh",
+    source_url: str = "",
 ) -> str:
     """
     Full pipeline: Topic → Research → Script → Video → TTS → Assemble
@@ -167,7 +168,13 @@ async def run_pipeline(
             await update(JobStatus.RESEARCHING, step, scaled_pct)
             
         await update(JobStatus.RESEARCHING, "Starting research phase...", 5)
-        articles = await research_topic(topic, on_progress=research_update)
+        if source_url:
+            articles = await research_from_url(source_url, on_progress=research_update)
+            if not articles:
+                await update(JobStatus.RESEARCHING, "⚠️ URL scrape failed, falling back to search...", 8)
+                articles = await research_topic(topic, on_progress=research_update)
+        else:
+            articles = await research_topic(topic, on_progress=research_update)
 
         if len(articles) == 0:
             raise Exception("No articles found for this topic. Please try a different keyword or try again later.")
@@ -236,10 +243,36 @@ async def run_pipeline(
             # HTML/CSS engine — no external service needed
             if settings.html_animated:
                 from worker.html_engine import render_scene_to_video
-                await update(JobStatus.RENDERING, f"🎬 HTML animated ({settings.html_template})...", 30)
+                # TTS first so we have real word timings for the subtitle overlay
+                audio_dir = project_dir / "audio"
+                audio_dir.mkdir(exist_ok=True)
+                await update(JobStatus.RENDERING, f"🎬 HTML animated ({settings.html_template}) — TTS first...", 30)
                 for i, scene in enumerate(primary_script.scenes):
                     mp4_path = clips_dir / f"scene_{i+1:02d}.mp4"
+                    audio_path = audio_dir / f"scene_{i+1:02d}.wav"
+                    word_timings: list[dict] = []
                     try:
+                        wav, word_timings = await generate_audio_with_word_timings(
+                            text=scene.narration_text,
+                            output_path=audio_path,
+                            scene_number=i + 1,
+                        )
+                        scene.audio_path = wav
+                    except Exception as e:
+                        print(f"TTS warning scene {i+1}: {e}")
+                    try:
+                        # Ground truth: ffprobe actual audio duration (most reliable)
+                        from worker.tts_engine import _audio_duration
+                        try:
+                            actual_dur = await _audio_duration(audio_path) + 0.25
+                        except Exception:
+                            if word_timings:
+                                actual_dur = (word_timings[-1]['start']
+                                              + word_timings[-1].get('duration', 0.3) + 0.35)
+                            else:
+                                actual_dur = 10.0
+                        actual_dur = max(actual_dur, 3.0)
+
                         async def _vid_prog(msg: str, _: int, _i=i):
                             await update(JobStatus.RENDERING, msg, 30 + int((_i / total) * 20))
                         result = await render_scene_to_video(
@@ -247,7 +280,10 @@ async def run_pipeline(
                             title=primary_script.title,
                             output_path=mp4_path,
                             template=settings.html_template,
+                            duration=actual_dur,
+                            word_timings=word_timings or None,
                             on_progress=_vid_prog,
+                            topic=topic,
                         )
                         scene.video_path = str(result)
                         scene.clip_path = str(result)
@@ -350,25 +386,36 @@ async def run_pipeline(
             pct = 50 + int((i + 1) / total * 5)
             await update(JobStatus.RENDERING, f"🎬 Video {i+1}/{total} done", pct)
 
-        # ── Phase 4: Generate voiceover ──
-        await update(JobStatus.TTS, "Generating voiceover...", 55)
+        # ── Phase 4: Generate voiceover (skip if HTML animated already ran TTS) ──
         audio_dir = project_dir / "audio"
         audio_dir.mkdir(exist_ok=True)
+        needs_tts = [
+            i for i in range(len(primary_script.scenes))
+            if not (audio_dir / f"scene_{i+1:02d}.wav").exists()
+        ]
+        if needs_tts:
+            await update(JobStatus.TTS, f"Generating voiceover ({len(needs_tts)} scenes)...", 55)
+            for idx, i in enumerate(needs_tts):
+                scene = primary_script.scenes[i]
+                audio_path = audio_dir / f"scene_{i+1:02d}.wav"
+                try:
+                    await generate_audio(
+                        text=scene.narration_text,
+                        output_path=audio_path,
+                        scene_number=i + 1,
+                    )
+                    scene.audio_path = str(audio_path)
+                except Exception as e:
+                    print(f"TTS warning scene {i+1}: {e}")
+                pct = 55 + int((idx + 1) / len(needs_tts) * 15)
+                await update(JobStatus.TTS, f"Audio {i+1}/{len(primary_script.scenes)}", pct)
+        else:
+            await update(JobStatus.TTS, "✅ All voiceover tracks ready", 70)
 
         for i, scene in enumerate(primary_script.scenes):
-            audio_path = audio_dir / f"scene_{i+1:02d}.wav"
-            try:
-                await generate_audio(
-                    text=scene.narration_text,
-                    output_path=audio_path,
-                    scene_number=i + 1,
-                )
-                scene.audio_path = str(audio_path)
-            except Exception as e:
-                print(f"TTS warning scene {i+1}: {e}")
-
-            pct = 55 + int((i + 1) / len(primary_script.scenes) * 15)
-            await update(JobStatus.TTS, f"Audio {i+1}/{len(primary_script.scenes)}", pct)
+            wav = audio_dir / f"scene_{i+1:02d}.wav"
+            if not scene.audio_path and wav.exists():
+                scene.audio_path = str(wav)
 
         # Persist audio paths
         script_path.write_text(primary_script.model_dump_json(indent=2), encoding="utf-8")
@@ -516,16 +563,44 @@ async def continue_pipeline(job_id: str, ws_callback=None) -> str:
             await release_ollama_model()
             if settings.html_animated:
                 from worker.html_engine import render_scene_to_video
-                await update(JobStatus.RENDERING, f"🎬 HTML animated — {len(needs_render)} scenes...", 30)
+                audio_dir_cont = project_dir / "audio"
+                audio_dir_cont.mkdir(exist_ok=True)
+                await update(JobStatus.RENDERING, f"🎬 HTML animated — {len(needs_render)} scenes (TTS first)...", 30)
                 for idx, i in enumerate(needs_render):
                     scene = primary_script.scenes[i]
                     mp4_path = clips_dir / f"scene_{i+1:02d}.mp4"
+                    audio_path_cont = audio_dir_cont / f"scene_{i+1:02d}.wav"
+                    word_timings_cont: list[dict] = []
+                    if not audio_path_cont.exists():
+                        try:
+                            wav, word_timings_cont = await generate_audio_with_word_timings(
+                                text=scene.narration_text,
+                                output_path=audio_path_cont,
+                                scene_number=i + 1,
+                            )
+                            scene.audio_path = wav
+                        except Exception as e:
+                            print(f"TTS warning scene {i+1}: {e}")
                     try:
+                        from worker.tts_engine import _audio_duration
+                        try:
+                            actual_dur_cont = await _audio_duration(audio_path_cont) + 0.25
+                        except Exception:
+                            if word_timings_cont:
+                                actual_dur_cont = (word_timings_cont[-1]['start']
+                                                   + word_timings_cont[-1].get('duration', 0.3) + 0.35)
+                            else:
+                                actual_dur_cont = 10.0
+                        actual_dur_cont = max(actual_dur_cont, 3.0)
+
                         result = await render_scene_to_video(
                             scene=scene,
                             title=primary_script.title,
                             output_path=mp4_path,
                             template=settings.html_template,
+                            duration=actual_dur_cont,
+                            word_timings=word_timings_cont or None,
+                            topic=topic,
                         )
                         scene.clip_path = str(result)
                         scene.video_path = str(result)

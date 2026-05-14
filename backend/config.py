@@ -39,10 +39,15 @@ class Settings(BaseSettings):
     comfyui_i2v_denoise: float = 0.70  # how much to animate (0.5=subtle, 0.85=wild)
 
     # TTS
-    tts_engine: str = "vieneu"  # vieneu | edge-tts | piper | faster-qwen3-tts
+    tts_engine: str = "vieneu"  # vieneu | edge-tts | piper | faster-qwen3-tts | elevenlabs
     tts_model_path: str = ""
     tts_ref_audio: str = ""
     tts_voice: str = "default"
+
+    # ElevenLabs TTS
+    elevenlabs_api_key: str = ""
+    elevenlabs_voice_id: str = "pNInz6obpgDQGcFmaJgB"   # Adam — multilingual, good for narration
+    elevenlabs_model: str = "eleven_turbo_v2_5"           # fast, multilingual incl. Vietnamese
 
     # Video
     output_format: str = "vertical"  # vertical (9:16) | horizontal (16:9)
@@ -61,7 +66,7 @@ class Settings(BaseSettings):
 
     # Background music
     bg_music_path: str = ""           # path to .mp3/.wav file, empty = disabled
-    bg_music_volume: float = 0.12     # 0.0–1.0 relative to TTS audio
+    bg_music_volume: float = 0.35     # 0.0–1.0 background level; sidechaincompress ducks it under voice
 
     # Phase 5 — Visual Consistency
     enable_upscale: bool = True            # Upscale PNG to 1080x1920 (Real-ESRGAN if binary found, else PIL Lanczos)
@@ -88,8 +93,9 @@ class Settings(BaseSettings):
     scene_engine: str = "drawthings"  # drawthings | html
     html_template: str = "auto"       # auto | dark | gradient | minimal | bold | news | cinematic | stats | how
     html_animated: bool = True        # True = record animated MP4 via Playwright; False = static PNG
-    pexels_api_key: str = ""          # Pexels API key for background photos (free at pexels.com/api)
+    pexels_api_key: str = ""          # Pexels API key for background photos/videos (free at pexels.com/api)
     html_use_bg_image: bool = False   # Fetch Pexels photo as scene background (requires pexels_api_key)
+    pexels_video_enable: bool = True  # Use Pexels VIDEO backgrounds (looping, played during Playwright recording)
 
     # Research
     search_results_per_topic: int = 5

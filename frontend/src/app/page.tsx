@@ -137,6 +137,70 @@ function BgMusicPanel({ settings, updateSetting, apiBase }: { settings: any; upd
   );
 }
 
+function StockLibraryPanel({ apiBase }: { apiBase: string }) {
+  const [stats, setStats] = React.useState<{ total: number; by_category: Record<string, number> } | null>(null);
+  const [rebuilding, setRebuilding] = React.useState(false);
+  const [result, setResult] = React.useState<string | null>(null);
+
+  const loadStats = React.useCallback(() => {
+    fetch(`${apiBase}/projects/stock/stats`).then(r => r.json()).then(setStats).catch(() => {});
+  }, [apiBase]);
+
+  React.useEffect(() => { loadStats(); }, [loadStats]);
+
+  const rebuild = async () => {
+    setRebuilding(true);
+    setResult(null);
+    try {
+      const r = await fetch(`${apiBase}/projects/stock/rebuild`, { method: "POST" });
+      const data = await r.json();
+      setResult(data.message ?? "Done");
+      loadStats();
+    } catch {
+      setResult("Error rebuilding library");
+    } finally {
+      setRebuilding(false);
+    }
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 700 }}>🖼️ Local Stock Library</div>
+          <div style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 4 }}>
+            {stats ? `${stats.total} ảnh đã index từ DrawThings` : "Đang tải..."}
+          </div>
+        </div>
+        <button onClick={rebuild} disabled={rebuilding}
+          style={{ padding: "8px 16px", borderRadius: 8, border: "none",
+            background: rebuilding ? "var(--bg-secondary)" : "var(--accent-cyan)",
+            color: rebuilding ? "var(--text-secondary)" : "#000",
+            fontWeight: 700, fontSize: 12, cursor: rebuilding ? "not-allowed" : "pointer", whiteSpace: "nowrap" }}>
+          {rebuilding ? "⏳ Đang scan..." : "🔄 Rebuild Index"}
+        </button>
+      </div>
+      {stats && stats.total > 0 && (
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {Object.entries(stats.by_category).filter(([, n]) => n > 0).map(([cat, n]) => (
+            <span key={cat} style={{ fontSize: 10, padding: "3px 8px", borderRadius: 20,
+              background: "rgba(6,182,212,0.1)", border: "1px solid rgba(6,182,212,0.2)",
+              color: "var(--accent-cyan)", fontWeight: 600 }}>
+              {cat} {n}
+            </span>
+          ))}
+        </div>
+      )}
+      {result && (
+        <div style={{ fontSize: 11, color: "#34d399", padding: "6px 10px", borderRadius: 8,
+          background: "rgba(52,211,153,0.08)", border: "1px solid rgba(52,211,153,0.2)" }}>
+          ✓ {result}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const [topic, setTopic] = useState("");
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -148,7 +212,7 @@ export default function Dashboard() {
   // Modals state
   const [showPublisherConfig, setShowPublisherConfig] = useState<string | null>(null);
   const [editingScene, setEditingScene] = useState<{proj: string, scene: any} | null>(null);
-  const [showTechnicalModal, setShowTechnicalModal] = useState(false);
+  const [_showTechnicalModal, _setShowTechnicalModal] = useState(false);
   const [selectedScenes, setSelectedScenes] = useState<Set<number>>(new Set());
   const [activeJob, setActiveJob] = useState<any>(null);
 
@@ -157,7 +221,8 @@ export default function Dashboard() {
     url: string; isVideo: boolean; projName: string; allScenes: any[]; idx: number; audioUrl: string | null;
   } | null>(null);
   const [renderingScenes, setRenderingScenes] = useState<Set<number>>(new Set());
-  const [scriptStyle, setScriptStyle] = useState<"4wh" | "viral">("4wh");
+  const [scriptStyle, setScriptStyle] = useState<"4wh" | "viral" | "storyteller" | "explanation">("4wh");
+  const [sourceUrl, setSourceUrl] = useState("");
   const [publishForm, setPublishForm] = useState<{
     title: string; description: string; hashtags: string[];
     platforms: string[]; generating: boolean; publishing: boolean;
@@ -361,11 +426,12 @@ export default function Dashboard() {
       const res = await fetch(`${API_BASE}/jobs/create`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ topic, auto_publish: false, script_style: scriptStyle }),
+        body: JSON.stringify({ topic, auto_publish: false, script_style: scriptStyle, source_url: sourceUrl }),
       });
       if (res.ok) {
         const data = await res.json();
         setTopic("");
+        setSourceUrl("");
         if (data.project_name) {
           window.history.pushState(null, "", `/projects/${data.project_name}`);
         } else {
@@ -429,20 +495,6 @@ export default function Dashboard() {
       .catch(() => setPublishForm(f => ({ ...f, generating: false })));
   }
 
-  const statusColor: Record<string, string> = {
-    pending: "badge-pending",
-    researching: "badge-researching",
-    scripting: "badge-scripting",
-    rendering: "badge-rendering",
-    tts: "badge-tts",
-    assembling: "badge-assembling",
-    preview: "badge-preview",
-    completed: "badge-completed",
-    cancelling: "badge-failed",
-    cancelled: "badge-failed",
-    failed: "badge-failed",
-  };
-
   return (
     <div style={{ display: "flex", height: "100vh", background: "var(--bg-primary)", overflow: "hidden" }}>
       {/* Sidebar */}
@@ -486,11 +538,11 @@ export default function Dashboard() {
         <div>
           <textarea
             className="glow-input"
-            style={{ 
-              marginBottom: 12, 
-              padding: "12px 16px", 
-              fontSize: 14, 
-              height: 120, 
+            style={{
+              marginBottom: 8,
+              padding: "12px 16px",
+              fontSize: 14,
+              height: 100,
               resize: "none",
               lineHeight: 1.5,
               background: "rgba(0,0,0,0.2)"
@@ -499,30 +551,51 @@ export default function Dashboard() {
             value={topic}
             onChange={(e) => setTopic(e.target.value)}
           />
-          <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
-            {(["4wh", "viral"] as const).map(s => (
+          {/* URL input */}
+          <input
+            className="glow-input"
+            style={{
+              marginBottom: 10,
+              padding: "9px 14px",
+              fontSize: 13,
+              background: "rgba(0,0,0,0.2)",
+              color: sourceUrl ? "var(--accent-blue, #06b6d4)" : undefined,
+            }}
+            placeholder="🔗 Dán link bài báo (tuỳ chọn) → scrape trực tiếp"
+            value={sourceUrl}
+            onChange={(e) => {
+              setSourceUrl(e.target.value);
+              if (e.target.value.startsWith("http")) setScriptStyle("storyteller");
+            }}
+          />
+          {/* Style chips */}
+          <div style={{ display: "flex", gap: 5, marginBottom: 10, flexWrap: "wrap" }}>
+            {([
+              { id: "4wh",         label: "📐 4WH",        grad: "linear-gradient(135deg,#a855f7,#06b6d4)" },
+              { id: "viral",       label: "🔥 Viral",      grad: "linear-gradient(135deg,#ef4444,#f97316)" },
+              { id: "storyteller", label: "📖 Story",      grad: "linear-gradient(135deg,#f59e0b,#10b981)" },
+              { id: "explanation", label: "⚖️ So sánh",   grad: "linear-gradient(135deg,#0ea5e9,#6366f1)" },
+            ] as const).map(({ id, label, grad }) => (
               <button
-                key={s}
-                onClick={() => setScriptStyle(s)}
+                key={id}
+                onClick={() => setScriptStyle(id)}
                 style={{
                   flex: 1,
-                  padding: "7px 0",
-                  fontSize: 11,
+                  minWidth: 60,
+                  padding: "6px 4px",
+                  fontSize: 10,
                   fontWeight: 700,
                   borderRadius: 8,
-                  border: scriptStyle === s ? "none" : "1px solid var(--border)",
-                  background: scriptStyle === s
-                    ? s === "viral"
-                      ? "linear-gradient(135deg,#ef4444,#f97316)"
-                      : "linear-gradient(135deg,#a855f7,#06b6d4)"
-                    : "rgba(255,255,255,0.04)",
-                  color: scriptStyle === s ? "white" : "var(--text-secondary)",
+                  border: scriptStyle === id ? "none" : "1px solid var(--border)",
+                  background: scriptStyle === id ? grad : "rgba(255,255,255,0.04)",
+                  color: scriptStyle === id ? "white" : "var(--text-secondary)",
                   cursor: "pointer",
-                  letterSpacing: 0.5,
+                  letterSpacing: 0.3,
                   transition: "all 0.15s",
+                  whiteSpace: "nowrap",
                 }}
               >
-                {s === "4wh" ? "📐 4WH Framework" : "🔥 Viral 7 Scenes"}
+                {label}
               </button>
             ))}
           </div>
@@ -725,8 +798,8 @@ export default function Dashboard() {
                       </div>
                       {displayJob && (
                         <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-                          {/* Resume button — shown when job is stopped or failed */}
-                          {!runningJob && ["cancelled", "failed"].includes(displayJob.status) && (
+                          {/* Resume button — shown when job is incomplete and not actively running */}
+                          {!runningJob && displayJob.status !== "completed" && (
                             <motion.button
                               whileHover={{ scale: 1.05 }}
                               onClick={async () => {
@@ -970,7 +1043,7 @@ export default function Dashboard() {
                         setRenderingScenes(new Set(selectedScenes));
                         await Promise.all(
                           [...selectedScenes].map(i =>
-                            fetch(`${API_BASE}/jobs/${job.job_id}/render-scene/${i}`, { method: "POST" })
+                            fetch(`${API_BASE}/jobs/${job.job_id}/render-full-scene/${i}`, { method: "POST" })
                           )
                         );
                         setTimeout(() => setRenderingScenes(new Set()), 2000);
@@ -989,31 +1062,6 @@ export default function Dashboard() {
                       onClick={async (e) => {
                         const job = activeJob || projects[0];
                         if (!job) return;
-                        const hasScripts = job.scripts && job.scripts.length > 0;
-                        if (!hasScripts) {
-                          alert("Chưa có script. Dùng nút \"▶ Continue Pipeline\" để chạy lại toàn bộ pipeline.");
-                          return;
-                        }
-                        const btn = e.currentTarget;
-                        const oldText = btn.innerText;
-                        btn.innerText = "⏳ Processing...";
-                        const res = await fetch(`${API_BASE}/jobs/${job.job_id}/rerun`, { method: "POST" });
-                        if (!res.ok) {
-                          const err = await res.json().catch(() => ({}));
-                          alert(`Error: ${err.detail || res.statusText}`);
-                        }
-                        setTimeout(() => { btn.innerText = oldText; }, 1000);
-                      }}
-                      style={{ padding: "8px 16px", fontSize: 12, borderRadius: 10, border: "1px solid rgba(168,85,247,0.3)", background: "rgba(168,85,247,0.1)", color: "var(--accent-purple)", fontWeight: 700, cursor: "pointer" }}
-                    >
-                      🎬 Render lại toàn bộ
-                    </motion.button>
-
-                    <motion.button
-                      whileHover={{ scale: 1.05 }}
-                      onClick={async (e) => {
-                        const job = activeJob || projects[0];
-                        if (!job) return;
                         const scenes = job.scripts?.[0]?.scenes ?? [];
                         if (scenes.length === 0) {
                           alert("Chưa có script.");
@@ -1021,19 +1069,19 @@ export default function Dashboard() {
                         }
                         const btn = e.currentTarget;
                         btn.setAttribute("disabled", "true");
-                        // Render all scenes as video (skip ones that already have video)
+                        // Full render for all scenes that don't have a standalone video yet
                         const toRender = scenes
                           .map((_: any, i: number) => i)
                           .filter((i: number) => !scenes[i]?.video_path);
                         if (toRender.length > 0) {
-                          btn.innerText = `⏳ Queueing ${toRender.length} clips...`;
+                          btn.innerText = `⏳ Rendering ${toRender.length} scenes...`;
                           await Promise.all(
                             toRender.map((i: number) =>
-                              fetch(`${API_BASE}/jobs/${job.job_id}/render-video/${i}`, { method: "POST" })
+                              fetch(`${API_BASE}/jobs/${job.job_id}/render-full-scene/${i}`, { method: "POST" })
                             )
                           );
                         }
-                        // Trigger assembly
+                        // Trigger final assembly
                         btn.innerText = "🔗 Ghép video...";
                         await fetch(`${API_BASE}/jobs/${job.job_id}/assemble`, { method: "POST" });
                         btn.innerText = "🎬 Render + Ghép video";
@@ -1137,7 +1185,7 @@ export default function Dashboard() {
                       // Card thumbnail — image preferred (PNG shows first frame, avoids black video)
                       const thumbSrc = scene.clip_path || scene.image_path || scene.video_path;
                       const thumbFilename = thumbSrc ? (thumbSrc.split(/[\\/]/).pop() ?? "") : "";
-                      const thumbIsVideo = !scene.clip_path && !scene.image_path && /\.(mp4|webm|mov)$/i.test(thumbFilename);
+                      const thumbIsVideo = /\.(mp4|webm|mov)$/i.test(thumbFilename);
                       const thumbUrl = thumbSrc ? `http://localhost:8888/api/projects/${projName}/clip/${thumbFilename}` : "";
                       const audioFilename = scene.audio_path ? (scene.audio_path.split(/[\\/]/).pop() ?? "") : null;
                       const sceneAudioUrl = audioFilename ? `http://localhost:8888/api/projects/${projName}/audio/${audioFilename}` : null;
@@ -1175,7 +1223,7 @@ export default function Dashboard() {
                           >
                             {isSelected && (
                               <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
-                                <path d="M2 6.5L5.5 10L11 3" stroke="black" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                                <path d="M2 6.5L5.5 10L11 3" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                               </svg>
                             )}
                           </div>
@@ -1230,7 +1278,7 @@ export default function Dashboard() {
                                 <span style={{ color: "var(--text-secondary)" }}>📝 Script</span>
                                 <span style={{ color: "var(--accent-green)" }}>✓ Xong</span>
                               </div>
-                              
+
                               {[
                                 { label: "🎤 TTS Voice", ready: !!scene.audio_path, endpoint: `render-audio/${idx}`, color: "168,85,247" },
                                 { label: "🖼️ Hình cảnh", ready: !!(scene.clip_path || scene.image_path), endpoint: `render-scene/${idx}`, color: "6,182,212" },
@@ -1255,7 +1303,7 @@ export default function Dashboard() {
                                             try {
                                               const res = await fetch(`${API_BASE}/jobs/${job.job_id}/${endpoint}`, { method: "POST" });
                                               if (!res.ok) {
-                                                const err = await res.json().catch(() => ({}));
+                                                await res.json().catch(() => ({}));
                                                 btn.innerText = "✗ Error";
                                                 btn.style.color = "#ef4444";
                                                 setTimeout(() => { btn.innerText = "Retry"; btn.style.color = ""; btn.removeAttribute("disabled"); }, 3000);
@@ -1378,7 +1426,7 @@ export default function Dashboard() {
                                 <button className="btn-gradient" style={{ padding: "6px 12px", fontSize: 11 }} onClick={() => loadProject(proj.name)}>Manage</button>
                                 <button 
                                    style={{ padding: "6px 12px", fontSize: 11, borderRadius: 8, border: "1px solid rgba(239,68,68,0.3)", background: "rgba(239,68,68,0.1)", color: "#ef4444", cursor: "pointer" }}
-                                   onClick={async (e) => {
+                                   onClick={async () => {
                                       if (window.confirm(`Delete project "${proj.name}"?`)) {
                                          const res = await fetch(`${API_BASE}/projects/${proj.name}`, { method: "DELETE" });
                                          if (res.ok) fetchProjects();
@@ -1706,6 +1754,8 @@ export default function Dashboard() {
                          </div>
                        )}
                      </div>
+                     <div style={{ height: 1, background: "var(--border)" }} />
+                     <StockLibraryPanel apiBase={API_BASE} />
                    </>)}
                  </div>
                </div>

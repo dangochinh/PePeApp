@@ -22,7 +22,7 @@ async def create_job(req: JobCreateRequest, background_tasks: BackgroundTasks):
 
     # BackgroundTasks runs strictly after the HTTP response is sent — no deadlock risk.
     # The task grabs its own asyncio.Task ref via current_task() so cancel still works.
-    background_tasks.add_task(_run_job_async, req.topic, job_id, req.auto_publish, req.script_style)
+    background_tasks.add_task(_run_job_async, req.topic, job_id, req.auto_publish, req.script_style, req.source_url)
 
     return {
         "job_id": job_id,
@@ -33,7 +33,7 @@ async def create_job(req: JobCreateRequest, background_tasks: BackgroundTasks):
     }
 
 
-async def _run_job_async(topic: str, job_id: str, auto_publish: bool, script_style: str = "4wh"):
+async def _run_job_async(topic: str, job_id: str, auto_publish: bool, script_style: str = "4wh", source_url: str = ""):
     """Wrapper to run pipeline as a background task."""
     # Grab the asyncio Task reference so cancel_job can call task.cancel() on it.
     task = asyncio.current_task()
@@ -47,6 +47,7 @@ async def _run_job_async(topic: str, job_id: str, auto_publish: bool, script_sty
             auto_publish=auto_publish,
             ws_callback=broadcast_progress,
             script_style=script_style,
+            source_url=source_url,
         )
     except asyncio.CancelledError:
         pass  # pipeline already handled status update + re-raised; task is done
@@ -142,6 +143,132 @@ async def render_video_manual(job_id: str, scene_idx: int, background_tasks: Bac
     scene = script.scenes[scene_idx]
     background_tasks.add_task(_render_manual_task, job_id, scene, scene_idx, "video")
     return {"message": "Video render queued"}
+
+
+@router.post("/{job_id}/render-full-scene/{scene_idx}")
+async def render_full_scene(job_id: str, scene_idx: int, background_tasks: BackgroundTasks):
+    """Full scene render: DrawThings image → TTS → HTML animated mp4 with audio baked in."""
+    job = get_job(job_id)
+    if not job or not job.scripts:
+        raise HTTPException(status_code=404, detail="Job or scripts not found")
+    script = job.scripts[0]
+    if scene_idx >= len(script.scenes):
+        raise HTTPException(status_code=400, detail="Invalid scene index")
+    scene = script.scenes[scene_idx]
+    background_tasks.add_task(_render_full_scene_task, job_id, scene, scene_idx)
+    return {"message": "Full scene render queued"}
+
+
+async def _render_full_scene_task(job_id: str, scene, scene_idx: int):
+    """Image → TTS → HTML animated mp4 with audio baked in → standalone scene file."""
+    from api.app import broadcast_progress
+    from worker.video_engine import generate_clip
+    from worker.tts_engine import generate_audio_with_word_timings
+    from worker.html_engine import render_scene_to_video
+    from worker.assembler import bake_scene_audio
+    from pathlib import Path as _Path
+
+    job = get_job(job_id)
+    project_dir = _Path(job.project_dir)
+    clips_dir = project_dir / "clips"
+    audio_dir = project_dir / "audio"
+    clips_dir.mkdir(exist_ok=True)
+    audio_dir.mkdir(exist_ok=True)
+
+    prefix = f"scene_{scene_idx + 1:02d}"
+    scene_label = f"Scene {scene_idx + 1}"
+
+    def log(msg: str):
+        if not job.logs:
+            job.logs = []
+        if not job.logs or job.logs[-1] != msg:
+            job.logs.append(msg)
+
+    async def prog(step: str, pct: int):
+        job.current_step = f"🎬 {scene_label}: {step}"
+        job.progress_pct = pct
+        log(job.current_step)
+        await broadcast_progress(job.model_dump(mode="json", exclude_none=True))
+
+    try:
+        # 1 — Generate image via ComfyUI / DrawThings
+        await prog("Generating image...", 5)
+        img_output = clips_dir / f"{prefix}.png"
+        png_path = await generate_clip(
+            visual_prompt=scene.visual_prompt,
+            output_path=img_output,
+            scene_number=scene_idx + 1,
+            mode="image",
+            on_progress=lambda s, p: None,
+            seed=getattr(scene, "seed", None),
+            image_style=getattr(scene, "image_style", ""),
+        )
+        scene.image_path = png_path
+        log(f"✅ Image: {_Path(png_path).name}")
+
+        # 2 — TTS with word timings
+        await prog("Generating TTS...", 30)
+        mp3_output = audio_dir / f"{prefix}.mp3"
+        audio_path, word_timings = await generate_audio_with_word_timings(
+            text=scene.narration_text,
+            output_path=mp3_output,
+            scene_number=scene_idx + 1,
+        )
+        scene.audio_path = audio_path
+        log(f"✅ TTS: {len(word_timings)} word timings")
+
+        # 3 — Ground truth: ffprobe actual audio duration
+        from worker.tts_engine import _audio_duration
+        try:
+            actual_dur = await _audio_duration(_Path(audio_path)) + 0.25
+        except Exception:
+            if word_timings:
+                actual_dur = word_timings[-1]["start"] + word_timings[-1].get("duration", 0.3) + 0.35
+            else:
+                actual_dur = 10.0
+        actual_dur = max(actual_dur, 3.0)
+
+        # 4 — HTML → mp4 with local image as background
+        await prog("Rendering HTML animation...", 55)
+        raw_mp4 = clips_dir / f"{prefix}_raw.mp4"
+        title = job.scripts[0].title if job.scripts else job.job_id
+        from config import settings as _cfg
+        result = await render_scene_to_video(
+            scene=scene,
+            title=title,
+            output_path=raw_mp4,
+            template=_cfg.html_template,
+            duration=actual_dur,
+            word_timings=word_timings or None,
+            on_progress=lambda s, p: None,
+            local_bg_image=png_path,
+        )
+
+        # 5 — Bake audio into scene mp4 → standalone file
+        await prog("Baking audio into scene...", 85)
+        final_mp4 = clips_dir / f"{prefix}.mp4"
+        await bake_scene_audio(_Path(result), _Path(audio_path), final_mp4)
+        _Path(result).unlink(missing_ok=True)
+
+        scene.video_path = str(final_mp4)
+        scene.clip_path = str(final_mp4)
+        log(f"✅ Scene {scene_idx + 1} ready: {final_mp4.name}")
+        job.current_step = f"✅ {scene_label}: done"
+
+        # Persist updated scene to disk
+        if job.scripts and job.project_dir:
+            script_path = _Path(job.project_dir) / "script_01.json"
+            script_path.write_text(job.scripts[0].model_dump_json(indent=2), encoding="utf-8")
+
+        await broadcast_progress(job.model_dump(mode="json", exclude_none=True))
+
+    except Exception as e:
+        import traceback
+        err = str(e) or f"{type(e).__name__} (no message)"
+        print(f"[render_full_scene] {scene_label} FAILED:\n{traceback.format_exc()}")
+        log(f"❌ {scene_label}: {err[:300]}")
+        job.current_step = f"❌ {scene_label}: {err[:120]}"
+        await broadcast_progress(job.model_dump(mode="json", exclude_none=True))
 
 
 @router.post("/{job_id}/rerun")

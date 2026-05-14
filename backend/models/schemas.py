@@ -58,7 +58,8 @@ class Script(BaseModel):
 class JobCreateRequest(BaseModel):
     topic: str
     auto_publish: bool = False
-    script_style: str = "4wh"  # "4wh" | "viral"
+    script_style: str = "4wh"  # "4wh" | "viral" | "storyteller"
+    source_url: str = ""  # if set, scrape this URL instead of searching
 
     @field_validator("topic")
     @classmethod
